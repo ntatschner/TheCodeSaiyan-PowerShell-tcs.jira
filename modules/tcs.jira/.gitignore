@@ -1,0 +1,21 @@
+# Ignore everything
+*
+
+# Don't ignore files
+!*.ps1
+!*.psm1
+!*.psd1
+!*.xml
+!*.md
+!*.gitignore
+!*.yml
+!*.txt
+!*.csv
+
+# Don't ignore directories
+!Classes/
+!Private/
+!Public/
+!Config/
+!en-US/
+!TestResults/
