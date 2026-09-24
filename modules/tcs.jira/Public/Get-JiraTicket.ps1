@@ -38,12 +38,12 @@ function Get-JiraTicket {
     }
 
     Write-Verbose "Formatting ticket object for '$($ticket.key)'."
-    $commentList = New-Object -TypeName 'System.Collections.Generic.List[JiraComment]'
+    $commentList = [System.Collections.Generic.List[JiraComment]]::new()
     foreach ($comment in @($ticket.fields.comment.comments)) {
         if ($null -eq $comment) {
             continue
         }
-        $jiraComment = New-Object -TypeName JiraComment
+        $jiraComment = [JiraComment]::new()
         $jiraComment.Id = $comment.id
         $jiraComment.Author = $comment.author.displayName
         $jiraComment.Body = ConvertFrom-JiraDocument -Document $comment.body

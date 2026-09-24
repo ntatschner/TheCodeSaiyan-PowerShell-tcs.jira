@@ -15,7 +15,7 @@ $env:TCS_TELEMETRY_OPTOUT = '1'
 $env:TCS_CONFIG_ROOT = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "tcs-smoke-$([guid]::NewGuid().ToString('N'))"
 
 try {
-    Write-Host "Importing $moduleName from $moduleManifest" -ForegroundColor Cyan
+    Write-Output "Importing $moduleName from $moduleManifest"
     $importOutput = Import-Module -Name $moduleManifest -Force -ErrorAction Stop
     if ($null -ne $importOutput) { throw 'Importing the module wrote to the pipeline.' }
 
@@ -42,7 +42,7 @@ try {
     Update-JiraTicket -IssueKey 'SMOKE-1' -Comment 'Smoke test' -WhatIf
     Set-JSMRequestTransition -IssueKey 'SMOKE-1' -TransitionId '1' -WhatIf
 
-    Write-Host 'All smoke tests passed successfully.' -ForegroundColor Green
+    Write-Output 'All smoke tests passed successfully.'
 }
 finally {
     Remove-Module -Name $moduleName -Force -ErrorAction SilentlyContinue
