@@ -11,9 +11,22 @@ function Invoke-JiraRequest {
         - Paths starting with /servicedeskapi/ are sent to /rest/servicedeskapi/...
         - Any other path is sent to the Jira platform API, /rest/api/3/...
 
-        Search results (objects with an 'issues' property) are unwrapped to the issues. Pages are
-        followed through 'nextPageToken' (JQL search) or a 'nextPage' URL on the same site, up to
-        -MaxQueryPages. Requests that fail with HTTP 429 or 503 are retried up to three times.
+        Responses are unwrapped and paged, up to -MaxQueryPages pages:
+        - JQL search results (/rest/api/3/search/jql) are unwrapped to their issues and pages are
+          followed through 'nextPageToken'. Other responses with an 'issues' property (for example
+          the bulk create response, which also has 'errors') are returned unchanged.
+        - Jira platform pages ('values' with 'isLast', 'nextPage', 'startAt' or 'maxResults') are
+          unwrapped to their values and the 'nextPage' URL is followed.
+        - Jira Service Management pages ('values' with 'isLastPage') are unwrapped to their values
+          and the '_links.next' URL is followed.
+        Pagination links are only followed when they point to the site set by Set-JiraContext.
+        Use -Raw to get the response exactly as Jira sends it, without unwrapping or paging.
+
+        Retries: HTTP 429 is retried for every method. Other 5xx errors are retried only for the
+        idempotent methods Get, Put and Delete, so a Post (for example creating an issue) is never
+        sent twice. At most three attempts are made; the wait honours the Retry-After header
+        (capped at 60 seconds) and is otherwise 2, then 4 seconds.
+
         Errors are terminating and include the HTTP status and Jira's error details, never the
         credentials.
     .PARAMETER Method
@@ -23,10 +36,15 @@ function Invoke-JiraRequest {
         over -Resource and -JQL.
     .PARAMETER Resource
         A Jira platform resource shortcut (issue, project, search, user or group), combined with -Id.
+        'search' is sent to the enhanced JQL search endpoint /rest/api/3/search/jql and does not
+        take -Id.
     .PARAMETER Id
-        The identifier appended to -Resource, for example an issue key.
+        The identifier appended to -Resource, for example an issue key. It is URL-encoded as one
+        path segment, so it cannot add further path segments or a query string; use -URIPath for
+        sub-resources such as /issue/PROJ-1/transitions.
     .PARAMETER Body
-        The JSON request body. It is sent as UTF-8.
+        The request body. A string is sent as it is (it should be JSON). Any other object, such
+        as a hashtable, is converted to JSON (depth 20).
     .PARAMETER Query
         Query string parameters. Keys and values are URL-encoded. The hashtable is not modified.
     .PARAMETER JQL
@@ -34,6 +52,9 @@ function Invoke-JiraRequest {
         /rest/api/3/search/jql and returns all navigable fields unless -Query sets 'fields'.
     .PARAMETER MaxQueryPages
         The maximum number of pages to request. Defaults to 10.
+    .PARAMETER Raw
+        Returns the response exactly as Jira sends it: search results and pages are not unwrapped
+        and only one request is made.
     .EXAMPLE
         Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-123'
 
@@ -46,6 +67,10 @@ function Invoke-JiraRequest {
         Invoke-JiraRequest -Method Get -URIPath '/servicedeskapi/request/SD-42'
 
         Gets a Jira Service Management request.
+    .EXAMPLE
+        Invoke-JiraRequest -Method Post -URIPath '/issue/bulk' -Body @{ issueUpdates = $updates } -Raw
+
+        Creates issues in bulk and returns the whole response, including its 'errors'.
     .OUTPUTS
         The parsed response objects.
     #>
@@ -65,14 +90,16 @@ function Invoke-JiraRequest {
 
         [string]$Id,
 
-        [string]$Body,
+        [object]$Body,
 
         [hashtable]$Query,
 
         [string]$JQL,
 
         [ValidateRange(1, 1000)]
-        [int]$MaxQueryPages = 10
+        [int]$MaxQueryPages = 10,
+
+        [switch]$Raw
     )
 
     $TelemetryArgs = @{
@@ -95,10 +122,18 @@ function Invoke-JiraRequest {
         elseif ($JQL) {
             $requestPath = '/search/jql'
         }
+        elseif ($Resource -eq 'search') {
+            # /rest/api/3/search was retired by Atlassian; the enhanced search uses nextPageToken paging
+            if ($Id) {
+                throw '-Id cannot be used with -Resource search. Use -JQL or -Query to search.'
+            }
+            $requestPath = '/search/jql'
+        }
         elseif ($Resource) {
             $requestPath = "/$Resource"
             if ($Id) {
-                $requestPath += "/$Id"
+                # One encoded path segment: '/', '?', '#' and '..' cannot change the request
+                $requestPath += '/' + [System.Uri]::EscapeDataString($Id)
             }
             Write-Verbose "Constructed request path from -Resource: $requestPath"
         }
@@ -119,6 +154,18 @@ function Invoke-JiraRequest {
             $apiPath = "/rest/api/3$requestPath"
         }
         $endpointBase = "$baseUri$apiPath"
+        # Only JQL search results are unwrapped to their issues (not bulk create responses)
+        $isSearch = ($apiPath -split '\?')[0] -match '(?i)^/rest/api/(2|3|latest)/search(/jql)?/?$'
+        $requestBody = $null
+        if ($PSBoundParameters.ContainsKey('Body')) {
+            if ($null -eq $Body -or $Body -is [string]) {
+                $requestBody = $Body
+            }
+            else {
+                $requestBody = ConvertTo-Json -InputObject $Body -Depth 20
+            }
+        }
+        $isIdempotent = $Method -in @('Get', 'Put', 'Delete')
         Write-Verbose "Endpoint base (pre-query): $endpointBase"
 
         # --- Query parameters (copied so the caller's hashtable is not changed) ---
@@ -145,7 +192,6 @@ function Invoke-JiraRequest {
         $nextUri = $null
         $pageCount = 0
         $maxAttempts = 3
-        $retryDelaySeconds = 2
 
         do {
             if ($nextUri) {
@@ -169,7 +215,7 @@ function Invoke-JiraRequest {
                 ErrorAction = 'Stop'
             }
             if ($PSBoundParameters.ContainsKey('Body')) {
-                $requestParameters['Body'] = $Body
+                $requestParameters['Body'] = $requestBody
             }
             Write-Verbose ('[Page {0}] {1} {2}' -f ($pageCount + 1), $Method.ToUpperInvariant(), $uri)
 
@@ -191,7 +237,11 @@ function Invoke-JiraRequest {
                         $statusCode = [int]$Matches[1]
                     }
 
-                    if (($statusCode -eq 429 -or $statusCode -eq 503) -and $attempt -lt $maxAttempts) {
+                    # 429: the request was not processed, so any method can be retried.
+                    # 5xx: only idempotent methods, a POST may already have created something.
+                    $retryable = ($statusCode -eq 429) -or ($isIdempotent -and $statusCode -ge 500 -and $statusCode -le 599)
+                    if ($retryable -and $attempt -lt $maxAttempts) {
+                        $retryDelaySeconds = Get-JiraRetryDelay -Response $caught.Exception.Response -Attempt $attempt
                         Write-Warning "Jira returned HTTP $statusCode. Retrying in $retryDelaySeconds seconds (attempt $attempt of $maxAttempts)."
                         Start-Sleep -Seconds $retryDelaySeconds
                         continue
@@ -228,6 +278,13 @@ function Invoke-JiraRequest {
             # --- Collect results ---
             $nextUri = $null
             $morePages = $false
+            if ($Raw) {
+                if ($null -ne $response) {
+                    # -Raw: one request, the response exactly as received
+                    , $response
+                }
+                break
+            }
             if ($response -is [array]) {
                 foreach ($item in $response) {
                     $allResults.Add($item)
@@ -235,26 +292,54 @@ function Invoke-JiraRequest {
             }
             elseif ($null -ne $response -and -not ($response -is [string] -and $response.Length -eq 0)) {
                 $propertyNames = @($response.PSObject.Properties.Name)
-                if ($propertyNames -contains 'issues') {
+                $isPlatformPage = ($propertyNames -contains 'values') -and (
+                    ($propertyNames -contains 'isLast') -or ($propertyNames -contains 'nextPage') -or
+                    ($propertyNames -contains 'startAt') -or ($propertyNames -contains 'maxResults'))
+                $isServiceDeskPage = ($propertyNames -contains 'values') -and ($propertyNames -contains 'isLastPage')
+                $pageLink = $null
+
+                if ($isSearch -and $propertyNames -contains 'issues') {
                     Write-Verbose 'Detected a search result object. Extracting issues.'
                     foreach ($item in @($response.issues)) {
                         if ($null -ne $item) {
                             $allResults.Add($item)
                         }
                     }
+                    # nextPageToken is a query parameter only for GET; POST search takes it in the body
+                    if ($Method -eq 'Get' -and $propertyNames -contains 'nextPageToken' -and $response.nextPageToken -and -not ($propertyNames -contains 'isLast' -and $response.isLast)) {
+                        $queryParameters['nextPageToken'] = [string]$response.nextPageToken
+                        $morePages = $true
+                    }
+                }
+                elseif ($isServiceDeskPage) {
+                    Write-Verbose 'Detected a Service Management page. Extracting values.'
+                    foreach ($item in @($response.values)) {
+                        if ($null -ne $item) {
+                            $allResults.Add($item)
+                        }
+                    }
+                    if (-not $response.isLastPage -and $response._links -and $response._links.next) {
+                        $pageLink = [string]$response._links.next
+                    }
+                }
+                elseif ($isPlatformPage) {
+                    Write-Verbose 'Detected a page of values. Extracting values.'
+                    foreach ($item in @($response.values)) {
+                        if ($null -ne $item) {
+                            $allResults.Add($item)
+                        }
+                    }
+                    if (-not ($propertyNames -contains 'isLast' -and $response.isLast) -and $propertyNames -contains 'nextPage' -and $response.nextPage) {
+                        $pageLink = [string]$response.nextPage
+                    }
                 }
                 else {
                     $allResults.Add($response)
                 }
 
-                if ($propertyNames -contains 'nextPageToken' -and $response.nextPageToken -and -not ($propertyNames -contains 'isLast' -and $response.isLast)) {
-                    $queryParameters['nextPageToken'] = [string]$response.nextPageToken
-                    $morePages = $true
-                }
-                elseif ($propertyNames -contains 'nextPage' -and $response.nextPage) {
-                    $candidate = [string]$response.nextPage
-                    if ($candidate.StartsWith("$baseUri/", [System.StringComparison]::OrdinalIgnoreCase)) {
-                        $nextUri = $candidate
+                if ($pageLink) {
+                    if ($pageLink.StartsWith("$baseUri/", [System.StringComparison]::OrdinalIgnoreCase)) {
+                        $nextUri = $pageLink
                         $morePages = $true
                     }
                     else {
@@ -265,6 +350,10 @@ function Invoke-JiraRequest {
             $pageCount++
         } while ($morePages -and $pageCount -lt $MaxQueryPages)
 
+        if ($Raw) {
+            Invoke-TelemetryCollection @TelemetryArgs -Stage End
+            return
+        }
         if ($morePages) {
             Write-Warning "Stopped after $MaxQueryPages page(s); more results are available. Increase -MaxQueryPages to get them."
         }
