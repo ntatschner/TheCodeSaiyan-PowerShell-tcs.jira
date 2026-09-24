@@ -45,7 +45,7 @@ Describe 'Find-JiraIssue' {
 
     It 'Requests navigable fields by default' {
         $null = Find-JiraIssue -JQL 'project = P' -MaxResults 1
-        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Uri.OriginalString -match 'fields=%2Anavigable' }
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Uri.OriginalString -match 'fields=(%2A|\*)navigable' }
     }
 
     It 'Pipes into Update-JiraTicket' {
