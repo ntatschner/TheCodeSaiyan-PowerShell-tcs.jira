@@ -1,13 +1,65 @@
 function Invoke-JiraRequest {
+    <#
+    .SYNOPSIS
+        Sends a request to the Jira Cloud or Jira Service Management REST API.
+    .DESCRIPTION
+        Builds the request URL from the context set by Set-JiraContext, adds the Authorization
+        header, sends the request and returns the parsed response.
+
+        Path handling:
+        - Paths starting with /rest/ are used as they are (for example /rest/agile/1.0/board).
+        - Paths starting with /servicedeskapi/ are sent to /rest/servicedeskapi/...
+        - Any other path is sent to the Jira platform API, /rest/api/3/...
+
+        Search results (objects with an 'issues' property) are unwrapped to the issues. Pages are
+        followed through 'nextPageToken' (JQL search) or a 'nextPage' URL on the same site, up to
+        -MaxQueryPages. Requests that fail with HTTP 429 or 503 are retried up to three times.
+        Errors are terminating and include the HTTP status and Jira's error details, never the
+        credentials.
+    .PARAMETER Method
+        The HTTP method: Get, Post, Put, Delete or Patch.
+    .PARAMETER URIPath
+        The API path, for example /issue/JRA-9 or /servicedeskapi/request/SD-1. Takes precedence
+        over -Resource and -JQL.
+    .PARAMETER Resource
+        A Jira platform resource shortcut (issue, project, search, user or group), combined with -Id.
+    .PARAMETER Id
+        The identifier appended to -Resource, for example an issue key.
+    .PARAMETER Body
+        The JSON request body. It is sent as UTF-8.
+    .PARAMETER Query
+        Query string parameters. Keys and values are URL-encoded. The hashtable is not modified.
+    .PARAMETER JQL
+        A JQL query. Without -URIPath the request goes to the enhanced search endpoint
+        /rest/api/3/search/jql and returns all navigable fields unless -Query sets 'fields'.
+    .PARAMETER MaxQueryPages
+        The maximum number of pages to request. Defaults to 10.
+    .EXAMPLE
+        Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-123'
+
+        Gets an issue.
+    .EXAMPLE
+        Invoke-JiraRequest -Method Get -JQL 'project = PROJ AND status = "In Progress"' -Query @{ maxResults = 100 }
+
+        Returns the issues that match a JQL query.
+    .EXAMPLE
+        Invoke-JiraRequest -Method Get -URIPath '/servicedeskapi/request/SD-42'
+
+        Gets a Jira Service Management request.
+    .OUTPUTS
+        The parsed response objects.
+    #>
     [CmdletBinding()]
+    [OutputType([object])]
     param (
         [Parameter(Mandatory = $true)]
+        [ValidateSet('Get', 'Post', 'Put', 'Delete', 'Patch')]
         [string]$Method,
 
-        [Parameter(HelpMessage = "Explicit URI path (e.g., /issue/JRA-9). Takes precedence over -Resource.")]
+        [Parameter(HelpMessage = 'Explicit URI path (e.g., /issue/JRA-9). Takes precedence over -Resource.')]
         [string]$URIPath,
 
-        [Parameter(HelpMessage = "High-level resource shortcut.")]
+        [Parameter(HelpMessage = 'High-level resource shortcut.')]
         [ValidateSet('issue', 'project', 'search', 'user', 'group')]
         [string]$Resource,
 
@@ -19,148 +71,196 @@ function Invoke-JiraRequest {
 
         [string]$JQL,
 
-        [int16]$MaxQueryPages = 10
+        [ValidateRange(1, 1000)]
+        [int]$MaxQueryPages = 10
     )
 
-    begin {
-        # Helper for URL encoding
-        function _Encode([string]$v) {
-            if ($null -eq $v) { return "" }
-            return [System.Net.WebUtility]::UrlEncode($v)
-        }
-
-        if (-not (Get-Variable -Scope Global -Name "JiraContext" -ErrorAction SilentlyContinue)) {
-            throw "JiraContext variable not found. Please run Set-JiraContext to set the token."
-        }
-
-        # Normalize the base URI from context
-        $rawBase = ($JiraContext.ConnectionURI | ForEach-Object { "$($_)" }) -join ''
-        $rawBase = $rawBase.Trim().Trim('"').Trim("'")
-        $rawBase = ($rawBase -replace '\s+', '') -replace '^(https?://)+', '$1'
-        if ($rawBase -notmatch '^[a-zA-Z][a-zA-Z0-9+\-.]*://') {
-            $rawBase = "https://$rawBase"
-        }
-        $rawBase = $rawBase.TrimEnd('/')
-
-        # Determine request path
-        $requestPath = $URIPath
-        if ($JQL) {
-            $Resource = 'search'
-        }
-
-        if (-not $URIPath) {
-            if (-not $Resource) {
-                throw "Either -URIPath or -Resource must be specified."
-            }
-            $requestPath = "/$Resource"
-            if ($Id) {
-                $requestPath += "/$Id"
-            }
-            Write-Verbose "Constructed request path from -Resource: $requestPath"
-        }
-
-
-        # Determine correct API base path
-        if ($requestPath -like "/servicedeskapi/*") {
-            $apiBasePath = ""
-        } else {
-            $apiBasePath = "/rest/api/3"
-        }
-        if ($JQL) {
-            if (-not $Query) { $Query = @{} }
-            $Query['jql'] = $JQL
-        }
-
-        $EndpointBase = "$rawBase$apiBasePath$requestPath"
-        Write-Verbose "Endpoint base (pre-query): $EndpointBase"
-
-        # Build query string
-        $QueryParts = @()
-        if ($Query) {
-            foreach ($k in $Query.Keys) {
-                $QueryParts += ("{0}={1}" -f (_Encode $k), (_Encode ([string]$Query[$k])))
-            }
-        }
-
-        $script:__IJR_Endpoint = $EndpointBase
-        if ($QueryParts.Count -gt 0) {
-            $queryString = ($QueryParts -join '&')
-            $script:__IJR_Endpoint = "$EndpointBase`?$queryString"
-        }
-        
-        Write-Verbose "Full request URI: $($script:__IJR_Endpoint)"
+    if (-not $script:JiraContext -or -not $script:JiraCredential) {
+        throw 'Jira context is not set. Run Set-JiraContext first.'
     }
-    process {
-        $AllResults = @()
-        $CurrentEndpoint = $script:__IJR_Endpoint
-        $QueryPageCount = 0
-        
-        do {
-            $WRSplat = @{
-                Uri         = $CurrentEndpoint
-                Headers     = $JiraContext.AuthorizationHeader
-                Method      = $Method
-                ContentType = "application/json"
+    $baseUri = ([string]$script:JiraContext.ConnectionURI).TrimEnd('/')
+
+    # --- Request path ---
+    if ($URIPath) {
+        $requestPath = $URIPath
+    }
+    elseif ($JQL) {
+        $requestPath = '/search/jql'
+    }
+    elseif ($Resource) {
+        $requestPath = "/$Resource"
+        if ($Id) {
+            $requestPath += "/$Id"
+        }
+        Write-Verbose "Constructed request path from -Resource: $requestPath"
+    }
+    else {
+        throw 'Either -URIPath, -Resource or -JQL must be specified.'
+    }
+    if (-not $requestPath.StartsWith('/')) {
+        $requestPath = "/$requestPath"
+    }
+
+    if ($requestPath -like '/rest/*') {
+        $apiPath = $requestPath
+    }
+    elseif ($requestPath -like '/servicedeskapi/*') {
+        $apiPath = "/rest$requestPath"
+    }
+    else {
+        $apiPath = "/rest/api/3$requestPath"
+    }
+    $endpointBase = "$baseUri$apiPath"
+    Write-Verbose "Endpoint base (pre-query): $endpointBase"
+
+    # --- Query parameters (copied so the caller's hashtable is not changed) ---
+    $queryParameters = [ordered]@{}
+    if ($Query) {
+        foreach ($key in $Query.Keys) {
+            $queryParameters[[string]$key] = $Query[$key]
+        }
+    }
+    if ($JQL) {
+        $queryParameters['jql'] = $JQL
+        if ($apiPath -like '*/search/jql' -and -not $queryParameters.Contains('fields')) {
+            # The enhanced search endpoint only returns issue ids unless fields are requested
+            $queryParameters['fields'] = '*navigable'
+        }
+    }
+
+    $headers = @{
+        Authorization = Get-JiraAuthorizationHeader
+        Accept        = 'application/json'
+    }
+
+    $allResults = New-Object -TypeName 'System.Collections.Generic.List[object]'
+    $nextUri = $null
+    $pageCount = 0
+    $maxAttempts = 3
+    $retryDelaySeconds = 2
+
+    do {
+        if ($nextUri) {
+            $uri = $nextUri
+        }
+        else {
+            $pairs = @(foreach ($key in $queryParameters.Keys) {
+                    '{0}={1}' -f [System.Uri]::EscapeDataString([string]$key), [System.Uri]::EscapeDataString([string]$queryParameters[$key])
+                })
+            $uri = $endpointBase
+            if ($pairs.Count -gt 0) {
+                $uri = '{0}?{1}' -f $endpointBase, ($pairs -join '&')
             }
-            if ($Body) { $WRSplat.Body = $Body }
-            Write-Verbose ("[Page {0}] {1} {2}" -f ($QueryPageCount + 1), $Method.ToUpper(), $CurrentEndpoint)
-            
-            $maxRetries = 3
-            $retryDelay = 2
-            $attempt = 0
-            while ($true) {
-                try {
-                    $Response = Invoke-RestMethod @WRSplat -ErrorAction Stop
-                    # If the response is a search result, extract the 'issues'
-                    if ($Response.PSObject.Properties.Name -contains 'issues') {
-                        Write-Verbose "Detected a search result object. Extracting issues."
-                        $AllResults += $Response.issues
-                    } else {
-                        $AllResults += $Response
+        }
+
+        $requestParameters = @{
+            Uri         = $uri
+            Method      = $Method
+            Headers     = $headers
+            ContentType = 'application/json; charset=utf-8'
+            ErrorAction = 'Stop'
+        }
+        if ($PSBoundParameters.ContainsKey('Body')) {
+            $requestParameters['Body'] = $Body
+        }
+        Write-Verbose ('[Page {0}] {1} {2}' -f ($pageCount + 1), $Method.ToUpperInvariant(), $uri)
+
+        $attempt = 0
+        $response = $null
+        while ($true) {
+            $attempt++
+            try {
+                $response = Invoke-RestMethod @requestParameters
+                break
+            }
+            catch {
+                $caught = $_
+                $statusCode = $null
+                if ($caught.Exception.Response -and $caught.Exception.Response.StatusCode) {
+                    $statusCode = [int]$caught.Exception.Response.StatusCode
+                }
+                elseif ($caught.ErrorDetails -and $caught.ErrorDetails.Message -match '"status"\s*:\s*(\d+)') {
+                    $statusCode = [int]$Matches[1]
+                }
+
+                if (($statusCode -eq 429 -or $statusCode -eq 503) -and $attempt -lt $maxAttempts) {
+                    Write-Warning "Jira returned HTTP $statusCode. Retrying in $retryDelaySeconds seconds (attempt $attempt of $maxAttempts)."
+                    Start-Sleep -Seconds $retryDelaySeconds
+                    continue
+                }
+
+                $errorMessage = "Jira request $($Method.ToUpperInvariant()) '$uri' failed."
+                if ($statusCode) {
+                    $errorMessage += " HTTP status code: $statusCode."
+                }
+                if ($caught.ErrorDetails -and $caught.ErrorDetails.Message) {
+                    $errorMessage += " Details: $($caught.ErrorDetails.Message)"
+                }
+                elseif ($caught.Exception.Response -is [System.Net.WebResponse]) {
+                    # Windows PowerShell: read the error body from the response stream
+                    try {
+                        $reader = New-Object -TypeName System.IO.StreamReader -ArgumentList $caught.Exception.Response.GetResponseStream()
+                        $errorMessage += " Details: $($reader.ReadToEnd())"
+                        $reader.Close()
                     }
-                    # Handle pagination for paginated GET requests
-                    if ($Response.PSObject.Properties.Name -contains 'nextPage' -and $Response.nextPage) {
-                        $CurrentEndpoint = $Response.nextPage
-                    } else {
-                        $CurrentEndpoint = $null
+                    catch {
+                        $errorMessage += " Details: $($_.Exception.Message)"
                     }
-                    break
-                } catch {
-                    $attempt++
-                    $ErrorMessage = "Jira request to '$($WRSplat.Uri)' failed."
-                    $statusCode = $null
-                    if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
-                        $statusCode = [int]$_.Exception.Response.StatusCode
-                    } elseif ($_.ErrorDetails -and $_.ErrorDetails.Message -match '"status":\s*(\d+)') {
-                        $statusCode = [int]($matches[1])
+                }
+                else {
+                    $errorMessage += " Details: $($caught.Exception.Message)"
+                }
+
+                $exception = New-Object -TypeName System.InvalidOperationException -ArgumentList $errorMessage, $caught.Exception
+                $errorRecord = New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, 'JiraRequestFailed', ([System.Management.Automation.ErrorCategory]::InvalidResult), $uri
+                $PSCmdlet.ThrowTerminatingError($errorRecord)
+            }
+        }
+
+        # --- Collect results ---
+        $nextUri = $null
+        $morePages = $false
+        if ($response -is [array]) {
+            foreach ($item in $response) {
+                $allResults.Add($item)
+            }
+        }
+        elseif ($null -ne $response -and -not ($response -is [string] -and $response.Length -eq 0)) {
+            $propertyNames = @($response.PSObject.Properties.Name)
+            if ($propertyNames -contains 'issues') {
+                Write-Verbose 'Detected a search result object. Extracting issues.'
+                foreach ($item in @($response.issues)) {
+                    if ($null -ne $item) {
+                        $allResults.Add($item)
                     }
-                    if ($statusCode) {
-                        $ErrorMessage += " HTTP Status Code: $statusCode."
-                    }
-                    if ($statusCode -eq 503 -and $attempt -lt $maxRetries) {
-                        Write-Warning "Received 503 Service Unavailable. Retrying in $retryDelay seconds... (Attempt $attempt/$maxRetries)"
-                        Start-Sleep -Seconds $retryDelay
-                        continue
-                    }
-                    if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
-                        $ErrorMessage += " Details: $($_.ErrorDetails.Message)"
-                    } elseif ($_.Exception.Response -is [System.Net.WebResponse]) {
-                        # Windows PowerShell
-                        $resp = $_.Exception.Response
-                        $ErrorContent = $resp.GetResponseStream()
-                        $StreamReader = New-Object System.IO.StreamReader($ErrorContent)
-                        $JiraError = $StreamReader.ReadToEnd()
-                        $StreamReader.Close()
-                        $ErrorMessage += " Details: $JiraError"
-                    } else {
-                        $ErrorMessage += " Details: $($_.Exception.Message)"
-                    }
-                    throw $ErrorMessage
                 }
             }
-        } while ($CurrentEndpoint -and (++$QueryPageCount -lt $MaxQueryPages))
+            else {
+                $allResults.Add($response)
+            }
 
-        Write-Verbose "Response received. Total result objects collected: $($AllResults.Count)"
-        return $AllResults
+            if ($propertyNames -contains 'nextPageToken' -and $response.nextPageToken -and -not ($propertyNames -contains 'isLast' -and $response.isLast)) {
+                $queryParameters['nextPageToken'] = [string]$response.nextPageToken
+                $morePages = $true
+            }
+            elseif ($propertyNames -contains 'nextPage' -and $response.nextPage) {
+                $candidate = [string]$response.nextPage
+                if ($candidate.StartsWith("$baseUri/", [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $nextUri = $candidate
+                    $morePages = $true
+                }
+                else {
+                    Write-Warning "Not following a pagination link outside '$baseUri'."
+                }
+            }
+        }
+        $pageCount++
+    } while ($morePages -and $pageCount -lt $MaxQueryPages)
+
+    if ($morePages) {
+        Write-Warning "Stopped after $MaxQueryPages page(s); more results are available. Increase -MaxQueryPages to get them."
     }
+
+    Write-Verbose "Response received. Total result objects collected: $($allResults.Count)"
+    $allResults
 }
