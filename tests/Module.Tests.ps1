@@ -2,6 +2,7 @@ BeforeDiscovery {
     $RepoRoot = Split-Path -Path $PSScriptRoot -Parent
     $ModuleRoot = Join-Path -Path $RepoRoot -ChildPath 'modules/tcs.jira'
     $PublicFunctions = @(Get-ChildItem -Path (Join-Path $ModuleRoot 'Public') -Filter '*.ps1' | ForEach-Object BaseName | ForEach-Object { @{ Name = $_ } })
+    $ExportedFunctions = @((Import-PowerShellDataFile -Path (Join-Path $ModuleRoot 'tcs.jira.psd1')).FunctionsToExport | ForEach-Object { @{ Name = $_ } })
 }
 
 BeforeAll {
@@ -84,6 +85,25 @@ Describe 'Help for <Name>' -ForEach $PublicFunctions {
             $parameterHelp = $help.Parameters.Parameter | Where-Object Name -EQ $parameter
             ($parameterHelp.Description | Out-String).Trim() | Should -Not -BeNullOrEmpty -Because "parameter '$parameter' should be documented"
         }
+    }
+}
+
+# Coverage guard: every exported command reports telemetry through tcs.core (Start and End stages)
+Describe 'Telemetry for <Name>' -ForEach $ExportedFunctions {
+    BeforeAll {
+        $definition = (Get-Command -Name $Name -Module tcs.jira).Definition
+    }
+
+    It 'Sends a Start event' {
+        $definition | Should -Match 'Invoke-TelemetryCollection\b[^\r\n]*-Stage\s+Start'
+    }
+
+    It 'Sends an End event' {
+        $definition | Should -Match 'Invoke-TelemetryCollection\b[^\r\n]*-Stage\s+End'
+    }
+
+    It 'Sends a failed End event' {
+        $definition | Should -Match 'Invoke-TelemetryCollection\b[^\r\n]*-Stage\s+End\s+-Failed\s+\$true'
     }
 }
 

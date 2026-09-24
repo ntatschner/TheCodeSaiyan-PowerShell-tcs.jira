@@ -29,41 +29,56 @@ function Get-JiraTicket {
         [string]$IssueKey
     )
 
-    Write-Verbose "Getting ticket details for issue key: $IssueKey"
-    $ticket = Invoke-JiraRequest -Method Get -Resource 'issue' -Id $IssueKey
-
-    if (-not $ticket) {
-        Write-Warning "Failed to retrieve Jira ticket: $IssueKey. The response from the server was empty or invalid."
-        return
+    $TelemetryArgs = @{
+        ModuleName    = $MyInvocation.MyCommand.Module.Name
+        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
+        CommandName   = $MyInvocation.MyCommand.Name
+        ExecutionID   = [guid]::NewGuid().ToString()
     }
+    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    try {
+        Write-Verbose "Getting ticket details for issue key: $IssueKey"
+        $ticket = Invoke-JiraRequest -Method Get -Resource 'issue' -Id $IssueKey
 
-    Write-Verbose "Formatting ticket object for '$($ticket.key)'."
-    $commentList = [System.Collections.Generic.List[JiraComment]]::new()
-    foreach ($comment in @($ticket.fields.comment.comments)) {
-        if ($null -eq $comment) {
-            continue
+        if (-not $ticket) {
+            Write-Warning "Failed to retrieve Jira ticket: $IssueKey. The response from the server was empty or invalid."
+            Invoke-TelemetryCollection @TelemetryArgs -Stage End
+            return
         }
-        $jiraComment = [JiraComment]::new()
-        $jiraComment.Id = $comment.id
-        $jiraComment.Author = $comment.author.displayName
-        $jiraComment.Body = ConvertFrom-JiraDocument -Document $comment.body
-        if ($comment.created) { $jiraComment.Created = $comment.created }
-        if ($comment.updated) { $jiraComment.Updated = $comment.updated }
-        $jiraComment.UpdateAuthor = $comment.updateAuthor.displayName
-        $commentList.Add($jiraComment)
-    }
-    Write-Verbose "Processed $($commentList.Count) comment(s)."
 
-    [pscustomobject]@{
-        Key         = $ticket.key
-        Url         = "$($script:JiraContext.ConnectionURI)/browse/$($ticket.key)"
-        Summary     = $ticket.fields.summary
-        Status      = $ticket.fields.status.name
-        Assignee    = $ticket.fields.assignee.displayName
-        Reporter    = $ticket.fields.reporter.displayName
-        Created     = $ticket.fields.created
-        Updated     = $ticket.fields.updated
-        Description = $ticket.fields.description
-        Comments    = $commentList
+        Write-Verbose "Formatting ticket object for '$($ticket.key)'."
+        $commentList = [System.Collections.Generic.List[JiraComment]]::new()
+        foreach ($comment in @($ticket.fields.comment.comments)) {
+            if ($null -eq $comment) {
+                continue
+            }
+            $jiraComment = [JiraComment]::new()
+            $jiraComment.Id = $comment.id
+            $jiraComment.Author = $comment.author.displayName
+            $jiraComment.Body = ConvertFrom-JiraDocument -Document $comment.body
+            if ($comment.created) { $jiraComment.Created = $comment.created }
+            if ($comment.updated) { $jiraComment.Updated = $comment.updated }
+            $jiraComment.UpdateAuthor = $comment.updateAuthor.displayName
+            $commentList.Add($jiraComment)
+        }
+        Write-Verbose "Processed $($commentList.Count) comment(s)."
+
+        [pscustomobject]@{
+            Key         = $ticket.key
+            Url         = "$($script:JiraContext.ConnectionURI)/browse/$($ticket.key)"
+            Summary     = $ticket.fields.summary
+            Status      = $ticket.fields.status.name
+            Assignee    = $ticket.fields.assignee.displayName
+            Reporter    = $ticket.fields.reporter.displayName
+            Created     = $ticket.fields.created
+            Updated     = $ticket.fields.updated
+            Description = $ticket.fields.description
+            Comments    = $commentList
+        }
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End
+    }
+    catch {
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        throw
     }
 }

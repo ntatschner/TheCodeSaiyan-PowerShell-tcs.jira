@@ -22,10 +22,25 @@ function Get-JSMRequest {
         [string]$IssueKey
     )
 
-    $response = Invoke-JiraRequest -Method Get -URIPath "/servicedeskapi/request/$IssueKey"
-    if ($response) {
-        Write-Verbose "Successfully retrieved JSM request: $IssueKey."
-        return $response
+    $TelemetryArgs = @{
+        ModuleName    = $MyInvocation.MyCommand.Module.Name
+        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
+        CommandName   = $MyInvocation.MyCommand.Name
+        ExecutionID   = [guid]::NewGuid().ToString()
     }
-    Write-Warning "Failed to retrieve JSM request: $IssueKey. The response from the server was empty or invalid."
+    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    try {
+        $response = Invoke-JiraRequest -Method Get -URIPath "/servicedeskapi/request/$IssueKey"
+        if ($response) {
+            Write-Verbose "Successfully retrieved JSM request: $IssueKey."
+            Invoke-TelemetryCollection @TelemetryArgs -Stage End
+            return $response
+        }
+        Write-Warning "Failed to retrieve JSM request: $IssueKey. The response from the server was empty or invalid."
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End
+    }
+    catch {
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        throw
+    }
 }

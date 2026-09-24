@@ -44,27 +44,43 @@ function New-JSMRequest {
         [string]$Reporter
     )
 
-    $requestFieldValues = @{ summary = $Summary }
-    if ($Description) {
-        $requestFieldValues['description'] = $Description
+    $TelemetryArgs = @{
+        ModuleName    = $MyInvocation.MyCommand.Module.Name
+        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
+        CommandName   = $MyInvocation.MyCommand.Name
+        ExecutionID   = [guid]::NewGuid().ToString()
     }
+    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    try {
+        $requestFieldValues = @{ summary = $Summary }
+        if ($Description) {
+            $requestFieldValues['description'] = $Description
+        }
 
-    $body = @{
-        serviceDeskId      = $ServiceDeskId
-        requestTypeId      = $RequestTypeId
-        requestFieldValues = $requestFieldValues
-    }
-    if ($Reporter) {
-        $body['raiseOnBehalfOf'] = $Reporter
-    }
+        $body = @{
+            serviceDeskId      = $ServiceDeskId
+            requestTypeId      = $RequestTypeId
+            requestFieldValues = $requestFieldValues
+        }
+        if ($Reporter) {
+            $body['raiseOnBehalfOf'] = $Reporter
+        }
 
-    if (-not $PSCmdlet.ShouldProcess("service desk $ServiceDeskId", "Create request '$Summary'")) {
-        return
-    }
+        if (-not $PSCmdlet.ShouldProcess("service desk $ServiceDeskId", "Create request '$Summary'")) {
+            Invoke-TelemetryCollection @TelemetryArgs -Stage End
+            return
+        }
 
-    $result = Invoke-JiraRequest -Method Post -URIPath '/servicedeskapi/request' -Body ($body | ConvertTo-Json -Depth 5)
-    if ($result) {
-        Write-Verbose "Successfully created JSM request: $($result.issueKey)"
-        return $result
+        $result = Invoke-JiraRequest -Method Post -URIPath '/servicedeskapi/request' -Body ($body | ConvertTo-Json -Depth 5)
+        if ($result) {
+            Write-Verbose "Successfully created JSM request: $($result.issueKey)"
+            Invoke-TelemetryCollection @TelemetryArgs -Stage End
+            return $result
+        }
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End
+    }
+    catch {
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        throw
     }
 }
