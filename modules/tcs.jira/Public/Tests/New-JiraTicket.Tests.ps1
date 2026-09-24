@@ -32,12 +32,30 @@ Describe 'New-JiraTicket' {
         }
     }
 
-    It 'Sends the workload type custom field only when given' {
-        $null = New-JiraTicket -ProjectKey 'PROJ' -IssueType 'Task' -Summary 'S' -WorkloadType 'BAU'
+    It 'Merges -Fields into the create payload' {
+        $null = New-JiraTicket -ProjectKey 'PROJ' -IssueType 'Task' -Summary 'S' -Fields @{ labels = @('ops'); customfield_10010 = @{ value = 'BAU' } }
         Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
             $sent = if ($Body) { $Body | ConvertFrom-Json } else { [pscustomobject]@{} }
-            $sent.fields.customfield_14982.value -eq 'BAU' -and $null -eq $sent.fields.description
+            $sent.fields.customfield_10010.value -eq 'BAU' -and
+            (@($sent.fields.labels) -join ',') -eq 'ops' -and
+            $sent.fields.summary -eq 'S' -and $sent.fields.project.key -eq 'PROJ' -and
+            $null -eq $sent.fields.description
         }
+    }
+
+    It 'No longer has the site-specific -WorkloadType parameter' {
+        (Get-Command -Name New-JiraTicket).Parameters.Keys | Should -Not -Contain 'WorkloadType'
+    }
+
+    It 'Does not retry the create request on HTTP 503' {
+        Mock -ModuleName tcs.jira Start-Sleep { }
+        Mock -ModuleName tcs.jira Invoke-RestMethod {
+            $exception = New-Object -TypeName System.Exception -ArgumentList 'Service Unavailable'
+            $exception | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{ StatusCode = 503 })
+            throw (New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, 'HttpError', ([System.Management.Automation.ErrorCategory]::InvalidOperation), $null)
+        }
+        { New-JiraTicket -ProjectKey 'PROJ' -IssueType 'Task' -Summary 'S' -WarningAction SilentlyContinue } | Should -Throw '*503*'
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
     }
 
     It 'Does not call Jira with -WhatIf' {
