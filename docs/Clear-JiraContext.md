@@ -5,62 +5,34 @@ online version:
 schema: 2.0.0
 ---
 
-# Set-JSMRequestTransition
+# Clear-JiraContext
 
 ## SYNOPSIS
-Transitions a Jira Service Management request to a new status.
+Removes the Jira connection context and credential from the current session.
 
 ## SYNTAX
 
 ```
-Set-JSMRequestTransition [-IssueKey] <String> [-TransitionId] <String> [-ProgressAction <ActionPreference>]
- [-WhatIf] [-Confirm] [<CommonParameters>]
+Clear-JiraContext [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Performs a customer transition through POST /rest/servicedeskapi/request/\<key\>/transition.
-Get the available transition ids with Get-JSMRequestTransition.
+Clears the site URL and the API token credential set by Set-JiraContext, and removes the
+deprecated $global:JiraContext copy.
+Other tcs.jira functions fail until Set-JiraContext
+is run again.
+Supports -WhatIf and -Confirm.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 ```
-Set-JSMRequestTransition -IssueKey 'SD-42' -TransitionId '761'
+Clear-JiraContext
 ```
 
-Performs transition 761 on request SD-42.
+Forgets the Jira connection.
 
 ## PARAMETERS
-
-### -IssueKey
-The issue key or id of the request, for example SD-42.
-
-```yaml
-Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: True
-Position: 1
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -TransitionId
-The id of the transition to perform.
-
-```yaml
-Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: True
-Position: 2
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
 
 ### -WhatIf
 Shows what would happen if the cmdlet runs.
@@ -115,7 +87,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### None. Jira returns no content for a successful transition.
+### None.
 ## NOTES
 
 ## RELATED LINKS

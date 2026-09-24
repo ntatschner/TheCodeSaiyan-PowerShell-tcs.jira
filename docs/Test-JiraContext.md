@@ -5,46 +5,35 @@ online version:
 schema: 2.0.0
 ---
 
-# Get-JSMRequest
+# Test-JiraContext
 
 ## SYNOPSIS
-Gets a Jira Service Management customer request.
+Checks that the Jira context works by getting the signed-in user.
 
 ## SYNTAX
 
 ```
-Get-JSMRequest [-IssueKey] <String> [-ProgressAction <ActionPreference>] [<CommonParameters>]
+Test-JiraContext [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Gets the request from /rest/servicedeskapi/request/\<key\> and returns the response as Jira
-sends it.
+Sends GET /rest/api/3/myself with the context set by Set-JiraContext and returns the user
+(accountId, displayName, emailAddress, active, timeZone ...).
+Throws a terminating error
+when no context is set or the request fails, for example because the API token is wrong
+(HTTP 401) or the site URL is not a Jira site.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 ```
-Get-JSMRequest -IssueKey 'SD-42'
+Set-JiraContext -JiraUrl 'https://contoso.atlassian.net' -Credential (Get-Credential)
+Test-JiraContext | Select-Object displayName, emailAddress
 ```
 
-Gets request SD-42.
+Checks the connection and shows who is signed in.
 
 ## PARAMETERS
-
-### -IssueKey
-The issue key or id of the request, for example SD-42.
-
-```yaml
-Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: True
-Position: 1
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
 
 ### -ProgressAction
 {{ Fill ProgressAction Description }}
@@ -68,7 +57,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### PSCustomObject
+### PSCustomObject. The user returned by /rest/api/3/myself.
 ## NOTES
 
 ## RELATED LINKS

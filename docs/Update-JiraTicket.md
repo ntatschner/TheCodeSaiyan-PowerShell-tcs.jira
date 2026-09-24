@@ -33,18 +33,24 @@ Update-JiraTicket -IssueKey <String> [-Summary <String>] [-Comment <String>] [-O
 ## DESCRIPTION
 Performs the requested changes in this order, each as a separate REST call:
 1.
--MarkDone / -MarkResolved: finds the 'Done' or 'Resolved' transition
-   (GET /rest/api/3/issue/\<key\>/transitions) and performs it.
+-MarkDone / -MarkResolved: moves the issue to the 'Done' or 'Resolved' status, like
+   Invoke-JiraIssueTransition -Status Done (or Resolved).
+The transition is chosen by its
+   target status first, then by its exact name.
 2.
 -Summary / -OptionalFields: PUT /rest/api/3/issue/\<key\> with the fields.
 3.
 -Comment: POST /rest/api/3/issue/\<key\>/comment (the text is sent as an ADF paragraph).
 
-A failed transition or field update writes a non-terminating error and the remaining
-changes are still attempted; use -ErrorAction Stop to stop on the first failure.
-A failed
-comment is a terminating error.
+A failed transition (including when no transition leads to the status) or field update
+writes a non-terminating error and the remaining changes are still attempted; use
+-ErrorAction Stop to stop on the first failure.
+A failed comment is a terminating error
+(the original error from Invoke-JiraRequest).
 Supports -WhatIf and -Confirm.
+
+Issue keys can be piped in, for example from Find-JiraIssue (any object with an IssueKey
+or Key property).
 
 ## EXAMPLES
 
@@ -62,24 +68,29 @@ Update-JiraTicket -IssueKey 'PROJ-123' -Summary 'New title' -OptionalFields @{ l
 
 Changes the summary and labels.
 
+### EXAMPLE 3
+```
+Find-JiraIssue -JQL 'project = PROJ AND labels = stale' | Update-JiraTicket -Comment 'Closing stale issue' -MarkDone
+```
+
+Comments on and closes every issue that the query returns.
+
 ## PARAMETERS
 
 ### -IssueKey
-The issue key, for example PROJ-123.
+The issue key or id, for example PROJ-123.
+Accepts pipeline input by property name
+(IssueKey or Key).
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
-Aliases:
+Type: String
+Parameter Sets: (All)
+Aliases: Key
+
 Required: True
-Position:Named
+Position: Named
 Default value: None
-Default value: None
-Default value: None
-Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
+Accept pipeline input: True (ByPropertyName)
 Accept wildcard characters: False
 ```
 
@@ -87,18 +98,14 @@ Accept wildcard characters: False
 A new summary for the issue.
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
+Type: String
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -106,18 +113,14 @@ Accept wildcard characters: False
 A plain-text comment to add to the issue.
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
+Type: String
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -125,56 +128,44 @@ Accept wildcard characters: False
 A hashtable of other fields to set, keyed by field id, for example @{ labels = @('ops') }.
 
 ```yaml
-Type:Hashtable
-Parameter Sets:   (All)
+Type: Hashtable
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
 ### -MarkDone
-Transitions the issue to Done.
+Transitions the issue to the Done status.
 
 ```yaml
-Type:Switch
+Type: SwitchParameter
 Parameter Sets: MarkDone
 Aliases:
+
 Required: True
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: False
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
 ### -MarkResolved
-Transitions the issue to Resolved.
+Transitions the issue to the Resolved status.
 
 ```yaml
-Type:Switch
+Type: SwitchParameter
 Parameter Sets: MarkResolved
 Aliases:
+
 Required: True
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: False
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -183,18 +174,14 @@ Shows what would happen if the cmdlet runs.
 The cmdlet is not run.
 
 ```yaml
-Type:Switch
-Parameter Sets:   (All)
-Aliases:wi
+Type: SwitchParameter
+Parameter Sets: (All)
+Aliases: wi
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -202,18 +189,14 @@ Accept wildcard characters: False
 Prompts you for confirmation before running the cmdlet.
 
 ```yaml
-Type:Switch
-Parameter Sets:   (All)
-Aliases:cf
+Type: SwitchParameter
+Parameter Sets: (All)
+Aliases: cf
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -221,18 +204,14 @@ Accept wildcard characters: False
 {{ Fill ProgressAction Description }}
 
 ```yaml
-Type:ActionPreference
-Parameter Sets:   (All)
-Aliases:proga
+Type: ActionPreference
+Parameter Sets: (All)
+Aliases: proga
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 

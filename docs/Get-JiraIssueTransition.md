@@ -5,55 +5,31 @@ online version:
 schema: 2.0.0
 ---
 
-# Get-JiraTicket
+# Get-JiraIssueTransition
 
 ## SYNOPSIS
-Gets a Jira Cloud issue with its comments.
+Gets the transitions that can be performed on a Jira Cloud issue.
 
 ## SYNTAX
 
 ```
-Get-JiraTicket [-IssueKey] <String> [-ProgressAction <ActionPreference>] [<CommonParameters>]
+Get-JiraIssueTransition [-IssueKey] <String> [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Gets the issue from /rest/api/3/issue/\<key\> and returns a summary object with the key, a
-browser URL, summary, status, assignee, reporter, dates, description and comments.
-
-Created and Updated are \[datetime\] values.
-Description is returned as Jira sends it
-(an Atlassian Document Format object in API v3) and DescriptionText holds it as plain text.
-
-Comments are returned as objects with the type name tcs.jira.Comment and the properties
-Id, Author, Body, Created, Updated and UpdateAuthor.
-Comment bodies are converted to plain
-text and the dates are \[datetime\] values.
-
-Issue keys can be piped in, for example from Find-JiraIssue (any object with an IssueKey
-or Key property).
+Gets the transitions from GET /rest/api/3/issue/\<key\>/transitions for the issue's current
+status and the calling account.
+Each transition has an id, a name and a 'to' object with
+the target status (to.name).
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 ```
-Get-JiraTicket -IssueKey 'PROJ-123'
+Get-JiraIssueTransition -IssueKey 'PROJ-123' | Select-Object id, name, @{ n = 'To'; e = { $_.to.name } }
 ```
 
-Gets issue PROJ-123.
-
-### EXAMPLE 2
-```
-(Get-JiraTicket -IssueKey 'PROJ-123').Comments | Select-Object Author, Created, Body
-```
-
-Lists the comments on an issue.
-
-### EXAMPLE 3
-```
-= -1d' | Get-JiraTicket
-```
-
-Gets every issue updated in the last day, with comments.
+Lists the transitions and their target statuses.
 
 ## PARAMETERS
 
@@ -96,7 +72,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### PSCustomObject
+### PSCustomObject. The transition objects from Jira.
 ## NOTES
 
 ## RELATED LINKS

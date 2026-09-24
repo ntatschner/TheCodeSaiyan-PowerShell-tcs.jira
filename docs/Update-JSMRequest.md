@@ -13,7 +13,7 @@ Updates a Jira Service Management request: marks it done, changes fields and/or 
 ## SYNTAX
 
 ```
-Update-JSMRequest [-IssueKey] <String> [[-Summary] <String>] [[-Comment] <String>]
+Update-JSMRequest [-IssueKey] <String> [[-Summary] <String>] [[-Comment] <String>] [-Internal]
  [[-OptionalFields] <Hashtable>] [-MarkDone] [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm]
  [<CommonParameters>]
 ```
@@ -21,19 +21,24 @@ Update-JSMRequest [-IssueKey] <String> [[-Summary] <String>] [[-Comment] <String
 ## DESCRIPTION
 Performs the requested changes in this order, each as a separate REST call:
 1.
--MarkDone: finds the 'Done' customer transition
-   (GET /rest/servicedeskapi/request/\<key\>/transition) and performs it.
+-MarkDone: performs the request's 'Done' customer transition
+   (GET /rest/servicedeskapi/request/\<key\>/transition, exact name match).
 2.
 -Summary / -OptionalFields: PUT /rest/api/3/issue/\<key\> with the fields (the Service
    Management API has no request update endpoint).
 3.
--Comment: POST /rest/api/3/issue/\<key\>/comment (the text is sent as an ADF paragraph).
+-Comment: POST /rest/servicedeskapi/request/\<key\>/comment.
+The comment is public
+   (visible to the customer) unless -Internal is given.
 
-A failed transition or field update writes a non-terminating error and the remaining
-changes are still attempted; use -ErrorAction Stop to stop on the first failure.
-A failed
-comment is a terminating error.
+A failed transition (including when there is no 'Done' transition) or field update writes
+a non-terminating error and the remaining changes are still attempted; use
+-ErrorAction Stop to stop on the first failure.
+A failed comment is a terminating error
+(the original error from Invoke-JiraRequest).
 Supports -WhatIf and -Confirm.
+
+Issue keys can be piped in (any object with an IssueKey or Key property).
 
 ## EXAMPLES
 
@@ -42,25 +47,31 @@ Supports -WhatIf and -Confirm.
 Update-JSMRequest -IssueKey 'SD-42' -Comment 'Laptop shipped' -MarkDone
 ```
 
-Marks the request done and adds a comment.
+Marks the request done and adds a public comment.
+
+### EXAMPLE 2
+```
+Update-JSMRequest -IssueKey 'SD-42' -Comment 'Waiting for the supplier' -Internal
+```
+
+Adds an internal comment that the customer does not see.
 
 ## PARAMETERS
 
 ### -IssueKey
-The issue key of the request, for example SD-42.
+The issue key or id of the request, for example SD-42.
+Accepts pipeline input by property
+name (IssueKey or Key).
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
-Aliases:
+Type: String
+Parameter Sets: (All)
+Aliases: Key
+
 Required: True
-Position: 1Default
+Position: 1
 Default value: None
-Default value: None
-Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
+Accept pipeline input: True (ByPropertyName)
 Accept wildcard characters: False
 ```
 
@@ -68,17 +79,14 @@ Accept wildcard characters: False
 A new summary for the request.
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
+Type: String
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position: 2Default
-Default value: None
+Position: 2
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -86,17 +94,29 @@ Accept wildcard characters: False
 A plain-text comment to add to the request.
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
+Type: String
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position: 3Default
+Position: 3
 Default value: None
-Default value: None
-Accept pipeline input: False
-input:False
 Accept pipeline input: False
 Accept wildcard characters: False
+```
+
+### -Internal
+Adds -Comment as an internal comment, visible to agents only.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: Named
+Default value: False
+Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
@@ -104,17 +124,14 @@ Accept wildcard characters: False
 A hashtable of other fields to set, keyed by field id.
 
 ```yaml
-Type:Hashtable
-Parameter Sets:   (All)
+Type: Hashtable
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position: 4Default
-Default value: None
+Position: 4
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -122,18 +139,14 @@ Accept wildcard characters: False
 Performs the request's 'Done' transition.
 
 ```yaml
-Type:Switch
-Parameter Sets:   (All)
+Type: SwitchParameter
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: False
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -142,18 +155,14 @@ Shows what would happen if the cmdlet runs.
 The cmdlet is not run.
 
 ```yaml
-Type:Switch
-Parameter Sets:   (All)
-Aliases:wi
+Type: SwitchParameter
+Parameter Sets: (All)
+Aliases: wi
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -161,18 +170,14 @@ Accept wildcard characters: False
 Prompts you for confirmation before running the cmdlet.
 
 ```yaml
-Type:Switch
-Parameter Sets:   (All)
-Aliases:cf
+Type: SwitchParameter
+Parameter Sets: (All)
+Aliases: cf
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -180,18 +185,14 @@ Accept wildcard characters: False
 {{ Fill ProgressAction Description }}
 
 ```yaml
-Type:ActionPreference
-Parameter Sets:   (All)
-Aliases:proga
+Type: ActionPreference
+Parameter Sets: (All)
+Aliases: proga
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 

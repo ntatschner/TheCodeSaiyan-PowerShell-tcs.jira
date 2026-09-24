@@ -5,46 +5,35 @@ online version:
 schema: 2.0.0
 ---
 
-# Get-JSMRequest
+# Get-JiraContext
 
 ## SYNOPSIS
-Gets a Jira Service Management customer request.
+Gets the Jira connection context of the current session, without secrets.
 
 ## SYNTAX
 
 ```
-Get-JSMRequest [-IssueKey] <String> [-ProgressAction <ActionPreference>] [<CommonParameters>]
+Get-JiraContext [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Gets the request from /rest/servicedeskapi/request/\<key\> and returns the response as Jira
-sends it.
+Returns the site URL and user name set by Set-JiraContext.
+The API token is never
+returned.
+Returns nothing when no context is set.
+
+Use this instead of $global:JiraContext, which is deprecated.
 
 ## EXAMPLES
 
 ### EXAMPLE 1
 ```
-Get-JSMRequest -IssueKey 'SD-42'
+Get-JiraContext
 ```
 
-Gets request SD-42.
+Shows the site and user the tcs.jira functions connect with.
 
 ## PARAMETERS
-
-### -IssueKey
-The issue key or id of the request, for example SD-42.
-
-```yaml
-Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: True
-Position: 1
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
 
 ### -ProgressAction
 {{ Fill ProgressAction Description }}
@@ -68,7 +57,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### PSCustomObject
+### PSCustomObject with ConnectionURI, OriginalConnectionURL and Username, or nothing.
 ## NOTES
 
 ## RELATED LINKS

@@ -14,7 +14,7 @@ Sends a request to the Jira Cloud or Jira Service Management REST API.
 
 ```
 Invoke-JiraRequest [-Method] <String> [[-URIPath] <String>] [[-Resource] <String>] [[-Id] <String>]
- [[-Body] <String>] [[-Query] <Hashtable>] [[-JQL] <String>] [[-MaxQueryPages] <Int32>]
+ [[-Body] <Object>] [[-Query] <Hashtable>] [[-JQL] <String>] [[-MaxQueryPages] <Int32>] [-Raw]
  [-ProgressAction <ActionPreference>] [<CommonParameters>]
 ```
 
@@ -27,11 +27,25 @@ Path handling:
 - Paths starting with /servicedeskapi/ are sent to /rest/servicedeskapi/...
 - Any other path is sent to the Jira platform API, /rest/api/3/...
 
-Search results (objects with an 'issues' property) are unwrapped to the issues.
-Pages are
-followed through 'nextPageToken' (JQL search) or a 'nextPage' URL on the same site, up to
--MaxQueryPages.
-Requests that fail with HTTP 429 or 503 are retried up to three times.
+Responses are unwrapped and paged, up to -MaxQueryPages pages:
+- JQL search results (/rest/api/3/search/jql) are unwrapped to their issues and pages are
+  followed through 'nextPageToken'.
+Other responses with an 'issues' property (for example
+  the bulk create response, which also has 'errors') are returned unchanged.
+- Jira platform pages ('values' with 'isLast', 'nextPage', 'startAt' or 'maxResults') are
+  unwrapped to their values and the 'nextPage' URL is followed.
+- Jira Service Management pages ('values' with 'isLastPage') are unwrapped to their values
+  and the '_links.next' URL is followed.
+Pagination links are only followed when they point to the site set by Set-JiraContext.
+Use -Raw to get the response exactly as Jira sends it, without unwrapping or paging.
+
+Retries: HTTP 429 is retried for every method.
+Other 5xx errors are retried only for the
+idempotent methods Get, Put and Delete, so a Post (for example creating an issue) is never
+sent twice.
+At most three attempts are made; the wait honours the Retry-After header
+(capped at 60 seconds) and is otherwise 2, then 4 seconds.
+
 Errors are terminating and include the HTTP status and Jira's error details, never the
 credentials.
 
@@ -58,23 +72,27 @@ Invoke-JiraRequest -Method Get -URIPath '/servicedeskapi/request/SD-42'
 
 Gets a Jira Service Management request.
 
+### EXAMPLE 4
+```
+Invoke-JiraRequest -Method Post -URIPath '/issue/bulk' -Body @{ issueUpdates = $updates } -Raw
+```
+
+Creates issues in bulk and returns the whole response, including its 'errors'.
+
 ## PARAMETERS
 
 ### -Method
 The HTTP method: Get, Post, Put, Delete or Patch.
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
+Type: String
+Parameter Sets: (All)
 Aliases:
+
 Required: True
-Position: 1Default
-Default value: None
+Position: 1
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -84,72 +102,67 @@ Takes precedence
 over -Resource and -JQL.
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
+Type: String
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position: 2Default
-Default value: None
+Position: 2
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
 ### -Resource
 A Jira platform resource shortcut (issue, project, search, user or group), combined with -Id.
+'search' is sent to the enhanced JQL search endpoint /rest/api/3/search/jql and does not
+take -Id.
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
+Type: String
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position: 3Default
-Default value: None
+Position: 3
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
 ### -Id
 The identifier appended to -Resource, for example an issue key.
+It is URL-encoded as one
+path segment, so it cannot add further path segments or a query string; use -URIPath for
+sub-resources such as /issue/PROJ-1/transitions.
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
+Type: String
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position: 4Default
-Default value: None
+Position: 4
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
 ### -Body
-The JSON request body.
-It is sent as UTF-8.
+The request body.
+A string is sent as it is (it should be JSON).
+Any other object, such
+as a hashtable, is converted to JSON (depth 20).
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
+Type: Object
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position: 5Default
-Default value: None
+Position: 5
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -159,17 +172,14 @@ Keys and values are URL-encoded.
 The hashtable is not modified.
 
 ```yaml
-Type:Hashtable
-Parameter Sets:   (All)
+Type: Hashtable
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position: 6Default
-Default value: None
+Position: 6
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -179,17 +189,14 @@ Without -URIPath the request goes to the enhanced search endpoint
 /rest/api/3/search/jql and returns all navigable fields unless -Query sets 'fields'.
 
 ```yaml
-Type:String
-Parameter Sets:   (All)
+Type: String
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position: 7Default
-Default value: None
+Position: 7
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
@@ -198,18 +205,30 @@ The maximum number of pages to request.
 Defaults to 10.
 
 ```yaml
-Type:
-Int32
-Parameter Sets:   (All)
+Type: Int32
+Parameter Sets: (All)
 Aliases:
+
 Required: False
-Position: 8Default
-Default value: None
+Position: 8
 Default value: 10
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
 Accept wildcard characters: False
+```
+
+### -Raw
+Returns the response exactly as Jira sends it: search results and pages are not unwrapped
+and only one request is made.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: Named
+Default value: False
+Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
@@ -217,18 +236,14 @@ Accept wildcard characters: False
 {{ Fill ProgressAction Description }}
 
 ```yaml
-Type:ActionPreference
-Parameter Sets:   (All)
-Aliases:proga
+Type: ActionPreference
+Parameter Sets: (All)
+Aliases: proga
+
 Required: False
-Position:Named
-Default value: None
-Default value: None
+Position: Named
 Default value: None
 Accept pipeline input: False
-input:False
-Accept pipeline input: False
-Accept wildcard characters: False
 Accept wildcard characters: False
 ```
 
