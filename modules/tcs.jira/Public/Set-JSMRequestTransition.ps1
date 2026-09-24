@@ -28,14 +28,30 @@ function Set-JSMRequestTransition {
         [string]$TransitionId
     )
 
-    if (-not $PSCmdlet.ShouldProcess($IssueKey, "Perform transition $TransitionId")) {
-        return
+    $TelemetryArgs = @{
+        ModuleName    = $MyInvocation.MyCommand.Module.Name
+        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
+        CommandName   = $MyInvocation.MyCommand.Name
+        ExecutionID   = [guid]::NewGuid().ToString()
     }
+    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    try {
+        if (-not $PSCmdlet.ShouldProcess($IssueKey, "Perform transition $TransitionId")) {
+            Invoke-TelemetryCollection @TelemetryArgs -Stage End
+            return
+        }
 
-    $body = @{ id = $TransitionId } | ConvertTo-Json
-    $result = Invoke-JiraRequest -Method Post -URIPath "/servicedeskapi/request/$IssueKey/transition" -Body $body
-    Write-Verbose "Successfully transitioned JSM request $IssueKey."
-    if ($result) {
-        return $result
+        $body = @{ id = $TransitionId } | ConvertTo-Json
+        $result = Invoke-JiraRequest -Method Post -URIPath "/servicedeskapi/request/$IssueKey/transition" -Body $body
+        Write-Verbose "Successfully transitioned JSM request $IssueKey."
+        if ($result) {
+            Invoke-TelemetryCollection @TelemetryArgs -Stage End
+            return $result
+        }
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End
+    }
+    catch {
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        throw
     }
 }

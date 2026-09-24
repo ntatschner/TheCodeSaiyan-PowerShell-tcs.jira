@@ -55,3 +55,33 @@ Describe 'New-JiraTicket' {
         { New-JiraTicket -ProjectKey 'PROJ' -IssueType 'Task' -Summary '' } | Should -Throw
     }
 }
+
+Describe 'New-JiraTicket telemetry' {
+    BeforeEach {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ id = '1'; key = 'PROJ-1' } }
+        Mock -ModuleName tcs.jira Invoke-TelemetryCollection { }
+    }
+
+    It 'Sends Start and End events and returns only the ticket' {
+        $output = New-JiraTicket -ProjectKey 'PROJ' -IssueType 'Task' -Summary 'S'
+        @($output).Count | Should -Be 1
+        $output.key | Should -Be 'PROJ-1'
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'New-JiraTicket' -and $Stage -eq 'Start'
+        }
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'New-JiraTicket' -and $Stage -eq 'End' -and -not $Failed
+        }
+    }
+
+    It 'Sends Start and End events with -WhatIf without calling Jira' {
+        New-JiraTicket -ProjectKey 'PROJ' -IssueType 'Task' -Summary 'S' -WhatIf
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'New-JiraTicket' -and $Stage -eq 'Start'
+        }
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'New-JiraTicket' -and $Stage -eq 'End' -and -not $Failed
+        }
+    }
+}

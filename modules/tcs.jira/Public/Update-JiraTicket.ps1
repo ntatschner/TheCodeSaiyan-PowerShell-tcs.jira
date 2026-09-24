@@ -65,66 +65,80 @@ function Update-JiraTicket {
         [switch]$MarkResolved
     )
 
-    if (-not $Summary -and -not $Comment -and -not $OptionalFields -and -not $MarkDone -and -not $MarkResolved) {
-        throw 'You must provide at least one of -Summary, -Comment, -OptionalFields, -MarkDone or -MarkResolved to update a ticket.'
+    $TelemetryArgs = @{
+        ModuleName    = $MyInvocation.MyCommand.Module.Name
+        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
+        CommandName   = $MyInvocation.MyCommand.Name
+        ExecutionID   = [guid]::NewGuid().ToString()
     }
-    Write-Verbose "Starting Update-JiraTicket for '$IssueKey'"
+    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    try {
+        if (-not $Summary -and -not $Comment -and -not $OptionalFields -and -not $MarkDone -and -not $MarkResolved) {
+            throw 'You must provide at least one of -Summary, -Comment, -OptionalFields, -MarkDone or -MarkResolved to update a ticket.'
+        }
+        Write-Verbose "Starting Update-JiraTicket for '$IssueKey'"
 
-    # --- Transition (Done / Resolved) ---
-    $targetStatus = $null
-    if ($MarkDone) { $targetStatus = 'Done' }
-    if ($MarkResolved) { $targetStatus = 'Resolved' }
-    if ($targetStatus -and $PSCmdlet.ShouldProcess($IssueKey, "Transition to $targetStatus")) {
-        try {
-            $transitions = Invoke-JiraRequest -Method Get -Resource 'issue' -Id "$IssueKey/transitions" -ErrorAction Stop
-            $transition = Select-JiraTransition -Transition @($transitions.transitions) -Name $targetStatus
-            if ($transition) {
-                $body = @{ transition = @{ id = [string]$transition.id } } | ConvertTo-Json
-                Write-Verbose "Transitioning $IssueKey to $targetStatus using transition id $($transition.id)"
-                $null = Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/transitions" -Body $body -ErrorAction Stop
-                Write-Verbose "Ticket $IssueKey transitioned to $targetStatus."
+        # --- Transition (Done / Resolved) ---
+        $targetStatus = $null
+        if ($MarkDone) { $targetStatus = 'Done' }
+        if ($MarkResolved) { $targetStatus = 'Resolved' }
+        if ($targetStatus -and $PSCmdlet.ShouldProcess($IssueKey, "Transition to $targetStatus")) {
+            try {
+                $transitions = Invoke-JiraRequest -Method Get -Resource 'issue' -Id "$IssueKey/transitions" -ErrorAction Stop
+                $transition = Select-JiraTransition -Transition @($transitions.transitions) -Name $targetStatus
+                if ($transition) {
+                    $body = @{ transition = @{ id = [string]$transition.id } } | ConvertTo-Json
+                    Write-Verbose "Transitioning $IssueKey to $targetStatus using transition id $($transition.id)"
+                    $null = Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/transitions" -Body $body -ErrorAction Stop
+                    Write-Verbose "Ticket $IssueKey transitioned to $targetStatus."
+                }
+                else {
+                    Write-Warning "No '$targetStatus' transition found for ticket $IssueKey."
+                }
             }
-            else {
-                Write-Warning "No '$targetStatus' transition found for ticket $IssueKey."
+            catch {
+                Write-Error -Message "Failed to transition ticket $IssueKey to $targetStatus. $($_.Exception.Message)"
             }
         }
-        catch {
-            Write-Error -Message "Failed to transition ticket $IssueKey to $targetStatus. $($_.Exception.Message)"
-        }
-    }
 
-    # --- Update fields ---
-    $fieldsToUpdate = @{}
-    if ($PSBoundParameters.ContainsKey('Summary')) {
-        $fieldsToUpdate['summary'] = $Summary
-    }
-    if ($OptionalFields) {
-        foreach ($key in $OptionalFields.Keys) {
-            $fieldsToUpdate[$key] = $OptionalFields[$key]
+        # --- Update fields ---
+        $fieldsToUpdate = @{}
+        if ($PSBoundParameters.ContainsKey('Summary')) {
+            $fieldsToUpdate['summary'] = $Summary
         }
-    }
-    if ($fieldsToUpdate.Count -gt 0 -and $PSCmdlet.ShouldProcess($IssueKey, "Update fields: $(@($fieldsToUpdate.Keys) -join ', ')")) {
-        try {
-            $jsonUpdateBody = @{ fields = $fieldsToUpdate } | ConvertTo-Json -Depth 10
-            $null = Invoke-JiraRequest -Method Put -Resource 'issue' -Id $IssueKey -Body $jsonUpdateBody -ErrorAction Stop
-            Write-Verbose "Field update request for $IssueKey completed."
+        if ($OptionalFields) {
+            foreach ($key in $OptionalFields.Keys) {
+                $fieldsToUpdate[$key] = $OptionalFields[$key]
+            }
         }
-        catch {
-            Write-Error -Message "Failed to update fields for ticket $IssueKey. $($_.Exception.Message)"
+        if ($fieldsToUpdate.Count -gt 0 -and $PSCmdlet.ShouldProcess($IssueKey, "Update fields: $(@($fieldsToUpdate.Keys) -join ', ')")) {
+            try {
+                $jsonUpdateBody = @{ fields = $fieldsToUpdate } | ConvertTo-Json -Depth 10
+                $null = Invoke-JiraRequest -Method Put -Resource 'issue' -Id $IssueKey -Body $jsonUpdateBody -ErrorAction Stop
+                Write-Verbose "Field update request for $IssueKey completed."
+            }
+            catch {
+                Write-Error -Message "Failed to update fields for ticket $IssueKey. $($_.Exception.Message)"
+            }
         }
-    }
 
-    # --- Add comment ---
-    if ($PSBoundParameters.ContainsKey('Comment') -and $PSCmdlet.ShouldProcess($IssueKey, 'Add comment')) {
-        try {
-            $jsonCommentBody = @{ body = (ConvertTo-JiraDocument -Text $Comment) } | ConvertTo-Json -Depth 10
-            $null = Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/comment" -Body $jsonCommentBody -ErrorAction Stop
-            Write-Verbose "Comment added to $IssueKey."
+        # --- Add comment ---
+        if ($PSBoundParameters.ContainsKey('Comment') -and $PSCmdlet.ShouldProcess($IssueKey, 'Add comment')) {
+            try {
+                $jsonCommentBody = @{ body = (ConvertTo-JiraDocument -Text $Comment) } | ConvertTo-Json -Depth 10
+                $null = Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/comment" -Body $jsonCommentBody -ErrorAction Stop
+                Write-Verbose "Comment added to $IssueKey."
+            }
+            catch {
+                throw "Failed to add comment to ticket $IssueKey. $($_.Exception.Message)"
+            }
         }
-        catch {
-            throw "Failed to add comment to ticket $IssueKey. $($_.Exception.Message)"
-        }
-    }
 
-    Write-Verbose "Finished Update-JiraTicket for '$IssueKey'"
+        Write-Verbose "Finished Update-JiraTicket for '$IssueKey'"
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End
+    }
+    catch {
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        throw
+    }
 }

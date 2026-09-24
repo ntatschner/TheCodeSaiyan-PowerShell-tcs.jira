@@ -61,37 +61,51 @@ function Set-JiraContext {
         [switch]$PassThru
     )
 
-    # --- Normalise the base URL ---
-    $raw = $JiraUrl.Trim().TrimEnd('/')
-    $connectionUri = ($raw -replace '(?i)/rest/api/(\d|v\d)+/?$', '').TrimEnd('/')
+    $TelemetryArgs = @{
+        ModuleName    = $MyInvocation.MyCommand.Module.Name
+        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
+        CommandName   = $MyInvocation.MyCommand.Name
+        ExecutionID   = [guid]::NewGuid().ToString()
+    }
+    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    try {
+        # --- Normalise the base URL ---
+        $raw = $JiraUrl.Trim().TrimEnd('/')
+        $connectionUri = ($raw -replace '(?i)/rest/api/(\d|v\d)+/?$', '').TrimEnd('/')
 
-    if ($PSCmdlet.ParameterSetName -eq 'Token') {
-        $secureToken = New-Object -TypeName System.Security.SecureString
-        foreach ($character in $PersonalAccessToken.ToCharArray()) {
-            $secureToken.AppendChar($character)
+        if ($PSCmdlet.ParameterSetName -eq 'Token') {
+            $secureToken = New-Object -TypeName System.Security.SecureString
+            foreach ($character in $PersonalAccessToken.ToCharArray()) {
+                $secureToken.AppendChar($character)
+            }
+            $secureToken.MakeReadOnly()
+            $Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $Username, $secureToken
         }
-        $secureToken.MakeReadOnly()
-        $Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $Username, $secureToken
-    }
 
-    if ([string]::IsNullOrWhiteSpace($Credential.UserName)) {
-        throw 'A user name (the Atlassian account e-mail address) is required.'
-    }
-
-    $context = [pscustomobject]@{
-        OriginalConnectionURL = $raw
-        ConnectionURI         = $connectionUri
-        Username              = $Credential.UserName
-        PersonalAccessToken   = ('*' * 8)
-    }
-
-    if ($PSCmdlet.ShouldProcess($connectionUri, 'Set Jira connection context')) {
-        $script:JiraCredential = $Credential
-        $script:JiraContext = $context
-        $global:JiraContext = $context
-        Write-Verbose "Jira context set. Base='$connectionUri' User='$($Credential.UserName)'"
-        if ($PassThru) {
-            $context
+        if ([string]::IsNullOrWhiteSpace($Credential.UserName)) {
+            throw 'A user name (the Atlassian account e-mail address) is required.'
         }
+
+        $context = [pscustomobject]@{
+            OriginalConnectionURL = $raw
+            ConnectionURI         = $connectionUri
+            Username              = $Credential.UserName
+            PersonalAccessToken   = ('*' * 8)
+        }
+
+        if ($PSCmdlet.ShouldProcess($connectionUri, 'Set Jira connection context')) {
+            $script:JiraCredential = $Credential
+            $script:JiraContext = $context
+            $global:JiraContext = $context
+            Write-Verbose "Jira context set. Base='$connectionUri' User='$($Credential.UserName)'"
+            if ($PassThru) {
+                $context
+            }
+        }
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End
+    }
+    catch {
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        throw
     }
 }
