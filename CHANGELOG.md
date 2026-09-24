@@ -39,6 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Pester and PSScriptAnalyzer; lint fails on warnings.
 - `.editorconfig`, `.gitattributes`, `.gitignore`, `CONTRIBUTING.md`, `SECURITY.md`,
   issue/PR templates, `CODEOWNERS` and Dependabot for GitHub Actions.
+- Every exported command reports an anonymous usage event through tcs.core
+  `Invoke-TelemetryCollection` (Start/End, with failures reported and rethrown unchanged).
+  Opt out with `$env:TCS_TELEMETRY_OPTOUT = '1'` or `Set-ModuleConfig -ModuleName tcs.jira -Telemetry $false`.
+  A module test fails if an exported command does not report telemetry.
+- `about_tcs.jira` help topic (`Get-Help about_tcs.jira`).
+- Release workflows: `create-version-tag.yml` (tags `v<ModuleVersion>` after CI Validate on
+  `main`), `generate-docs.yml` (PlatyPS help in `docs/` and `en-GB/`) and
+  `publish-to-psgallery.yml`, with `.github/PUBLISHING.md` describing the release steps.
+- The CI workflow is named `CI Validate` so the tag and docs workflows can run after it.
 
 ### Fixed
 - Service Management requests were sent to `/servicedeskapi/...` instead of
