@@ -47,30 +47,46 @@ function New-JiraTicket {
         [string]$WorkloadType
     )
 
-    $body = @{
-        fields = @{
-            project   = @{ key = $ProjectKey }
-            issuetype = @{ name = $IssueType }
-            summary   = $Summary
+    $TelemetryArgs = @{
+        ModuleName    = $MyInvocation.MyCommand.Module.Name
+        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
+        CommandName   = $MyInvocation.MyCommand.Name
+        ExecutionID   = [guid]::NewGuid().ToString()
+    }
+    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    try {
+        $body = @{
+            fields = @{
+                project   = @{ key = $ProjectKey }
+                issuetype = @{ name = $IssueType }
+                summary   = $Summary
+            }
         }
-    }
 
-    if ($WorkloadType) {
-        $body.fields['customfield_14982'] = @{ value = $WorkloadType }
-    }
+        if ($WorkloadType) {
+            $body.fields['customfield_14982'] = @{ value = $WorkloadType }
+        }
 
-    if ($Description) {
-        $body.fields['description'] = ConvertTo-JiraDocument -Text $Description
-    }
+        if ($Description) {
+            $body.fields['description'] = ConvertTo-JiraDocument -Text $Description
+        }
 
-    if (-not $PSCmdlet.ShouldProcess("project $ProjectKey", "Create $IssueType '$Summary'")) {
-        return
-    }
+        if (-not $PSCmdlet.ShouldProcess("project $ProjectKey", "Create $IssueType '$Summary'")) {
+            Invoke-TelemetryCollection @TelemetryArgs -Stage End
+            return
+        }
 
-    # Errors from Invoke-JiraRequest are terminating and bubble up to the caller
-    $ticket = Invoke-JiraRequest -Method Post -Resource 'issue' -Body ($body | ConvertTo-Json -Depth 10)
-    if ($ticket) {
-        Write-Verbose "Successfully created Jira ticket: $($ticket.key)"
-        return $ticket
+        # Errors from Invoke-JiraRequest are terminating and bubble up to the caller
+        $ticket = Invoke-JiraRequest -Method Post -Resource 'issue' -Body ($body | ConvertTo-Json -Depth 10)
+        if ($ticket) {
+            Write-Verbose "Successfully created Jira ticket: $($ticket.key)"
+            Invoke-TelemetryCollection @TelemetryArgs -Stage End
+            return $ticket
+        }
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End
+    }
+    catch {
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        throw
     }
 }

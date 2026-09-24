@@ -33,3 +33,40 @@ Describe 'Get-JSMRequest' {
         { Get-JSMRequest -IssueKey 'SD-404' } | Should -Throw '*SD-404*'
     }
 }
+
+Describe 'Get-JSMRequest telemetry' {
+    BeforeEach {
+        Mock -ModuleName tcs.jira Invoke-TelemetryCollection { }
+    }
+
+    It 'Sends Start and End events when the request succeeds' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ issueKey = 'SD-42' } }
+        $result = Get-JSMRequest -IssueKey 'SD-42'
+        @($result).Count | Should -Be 1
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'Get-JSMRequest' -and $ModuleName -eq 'tcs.jira' -and $Stage -eq 'Start'
+        }
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'Get-JSMRequest' -and $Stage -eq 'End' -and -not $Failed
+        }
+    }
+
+    It 'Sends an End event when the response is empty' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { }
+        $null = Get-JSMRequest -IssueKey 'SD-42' -WarningAction SilentlyContinue
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'Get-JSMRequest' -and $Stage -eq 'End' -and -not $Failed
+        }
+    }
+
+    It 'Sends a failed End event and rethrows when the request fails' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { throw 'Not found' }
+        { Get-JSMRequest -IssueKey 'SD-404' } | Should -Throw '*SD-404*'
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'Get-JSMRequest' -and $Stage -eq 'End' -and $Failed -eq $true -and $null -ne $Exception
+        }
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 0 -Exactly -ParameterFilter {
+            $CommandName -eq 'Get-JSMRequest' -and $Stage -eq 'End' -and -not $Failed
+        }
+    }
+}

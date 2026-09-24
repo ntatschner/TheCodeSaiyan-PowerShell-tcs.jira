@@ -45,63 +45,77 @@ function Update-JSMRequest {
         [switch]$MarkDone
     )
 
-    if (-not $Summary -and -not $Comment -and -not $OptionalFields -and -not $MarkDone) {
-        throw 'You must provide at least one of -Summary, -Comment, -OptionalFields, or -MarkDone to update a JSM request.'
+    $TelemetryArgs = @{
+        ModuleName    = $MyInvocation.MyCommand.Module.Name
+        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
+        CommandName   = $MyInvocation.MyCommand.Name
+        ExecutionID   = [guid]::NewGuid().ToString()
     }
-    Write-Verbose "Starting Update-JSMRequest for '$IssueKey'"
+    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    try {
+        if (-not $Summary -and -not $Comment -and -not $OptionalFields -and -not $MarkDone) {
+            throw 'You must provide at least one of -Summary, -Comment, -OptionalFields, or -MarkDone to update a JSM request.'
+        }
+        Write-Verbose "Starting Update-JSMRequest for '$IssueKey'"
 
-    # --- Mark as Done (customer transition) ---
-    if ($MarkDone -and $PSCmdlet.ShouldProcess($IssueKey, 'Transition to Done')) {
-        try {
-            $transitions = Invoke-JiraRequest -Method Get -URIPath "/servicedeskapi/request/$IssueKey/transition" -ErrorAction Stop
-            $transition = Select-JiraTransition -Transition @($transitions.values) -Name 'Done'
-            if ($transition) {
-                $body = @{ id = [string]$transition.id } | ConvertTo-Json
-                Write-Verbose "Transitioning $IssueKey to Done using transition id $($transition.id)"
-                $null = Invoke-JiraRequest -Method Post -URIPath "/servicedeskapi/request/$IssueKey/transition" -Body $body -ErrorAction Stop
-                Write-Verbose "JSM request $IssueKey transitioned to Done."
+        # --- Mark as Done (customer transition) ---
+        if ($MarkDone -and $PSCmdlet.ShouldProcess($IssueKey, 'Transition to Done')) {
+            try {
+                $transitions = Invoke-JiraRequest -Method Get -URIPath "/servicedeskapi/request/$IssueKey/transition" -ErrorAction Stop
+                $transition = Select-JiraTransition -Transition @($transitions.values) -Name 'Done'
+                if ($transition) {
+                    $body = @{ id = [string]$transition.id } | ConvertTo-Json
+                    Write-Verbose "Transitioning $IssueKey to Done using transition id $($transition.id)"
+                    $null = Invoke-JiraRequest -Method Post -URIPath "/servicedeskapi/request/$IssueKey/transition" -Body $body -ErrorAction Stop
+                    Write-Verbose "JSM request $IssueKey transitioned to Done."
+                }
+                else {
+                    Write-Warning "No 'Done' transition found for JSM request $IssueKey."
+                }
             }
-            else {
-                Write-Warning "No 'Done' transition found for JSM request $IssueKey."
+            catch {
+                Write-Error -Message "Failed to transition JSM request $IssueKey to Done. $($_.Exception.Message)"
             }
         }
-        catch {
-            Write-Error -Message "Failed to transition JSM request $IssueKey to Done. $($_.Exception.Message)"
-        }
-    }
 
-    # --- Update fields ---
-    $fieldsToUpdate = @{}
-    if ($PSBoundParameters.ContainsKey('Summary')) {
-        $fieldsToUpdate['summary'] = $Summary
-    }
-    if ($OptionalFields) {
-        foreach ($key in $OptionalFields.Keys) {
-            $fieldsToUpdate[$key] = $OptionalFields[$key]
+        # --- Update fields ---
+        $fieldsToUpdate = @{}
+        if ($PSBoundParameters.ContainsKey('Summary')) {
+            $fieldsToUpdate['summary'] = $Summary
         }
-    }
-    if ($fieldsToUpdate.Count -gt 0 -and $PSCmdlet.ShouldProcess($IssueKey, "Update fields: $(@($fieldsToUpdate.Keys) -join ', ')")) {
-        try {
-            $jsonUpdateBody = @{ fields = $fieldsToUpdate } | ConvertTo-Json -Depth 10
-            $null = Invoke-JiraRequest -Method Put -Resource 'issue' -Id $IssueKey -Body $jsonUpdateBody -ErrorAction Stop
-            Write-Verbose "Field update request for $IssueKey completed."
+        if ($OptionalFields) {
+            foreach ($key in $OptionalFields.Keys) {
+                $fieldsToUpdate[$key] = $OptionalFields[$key]
+            }
         }
-        catch {
-            Write-Error -Message "Failed to update fields for JSM request $IssueKey. $($_.Exception.Message)"
+        if ($fieldsToUpdate.Count -gt 0 -and $PSCmdlet.ShouldProcess($IssueKey, "Update fields: $(@($fieldsToUpdate.Keys) -join ', ')")) {
+            try {
+                $jsonUpdateBody = @{ fields = $fieldsToUpdate } | ConvertTo-Json -Depth 10
+                $null = Invoke-JiraRequest -Method Put -Resource 'issue' -Id $IssueKey -Body $jsonUpdateBody -ErrorAction Stop
+                Write-Verbose "Field update request for $IssueKey completed."
+            }
+            catch {
+                Write-Error -Message "Failed to update fields for JSM request $IssueKey. $($_.Exception.Message)"
+            }
         }
-    }
 
-    # --- Add comment ---
-    if ($PSBoundParameters.ContainsKey('Comment') -and $PSCmdlet.ShouldProcess($IssueKey, 'Add comment')) {
-        try {
-            $jsonCommentBody = @{ body = (ConvertTo-JiraDocument -Text $Comment) } | ConvertTo-Json -Depth 10
-            $null = Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/comment" -Body $jsonCommentBody -ErrorAction Stop
-            Write-Verbose "Comment added to $IssueKey."
+        # --- Add comment ---
+        if ($PSBoundParameters.ContainsKey('Comment') -and $PSCmdlet.ShouldProcess($IssueKey, 'Add comment')) {
+            try {
+                $jsonCommentBody = @{ body = (ConvertTo-JiraDocument -Text $Comment) } | ConvertTo-Json -Depth 10
+                $null = Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/comment" -Body $jsonCommentBody -ErrorAction Stop
+                Write-Verbose "Comment added to $IssueKey."
+            }
+            catch {
+                throw "Failed to add comment to JSM request $IssueKey. $($_.Exception.Message)"
+            }
         }
-        catch {
-            throw "Failed to add comment to JSM request $IssueKey. $($_.Exception.Message)"
-        }
-    }
 
-    Write-Verbose "Finished Update-JSMRequest for '$IssueKey'"
+        Write-Verbose "Finished Update-JSMRequest for '$IssueKey'"
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End
+    }
+    catch {
+        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        throw
+    }
 }
