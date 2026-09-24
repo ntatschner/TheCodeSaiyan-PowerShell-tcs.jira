@@ -1,73 +1,48 @@
-#region get public and private function definition files.
-$Public  = @(
-    Get-ChildItem -Path $PSScriptRoot\Public\*.ps1 -Exclude "*.Tests.ps1" -ErrorAction SilentlyContinue -Recurse
-)
-$Private = @(
-    Get-ChildItem -Path $PSScriptRoot\Private\*.ps1 -Exclude "*.Tests.ps1" -ErrorAction SilentlyContinue -Recurse
-)
+#region session state (never persisted to disk)
+# The connection context (URL and user name) and the credential used to build the Authorization
+# header. Both are set by Set-JiraContext and only live for the current session.
+$script:JiraContext = $null
+$script:JiraCredential = $null
 #endregion
 
-#region load Classes before functions
-$ClassFiles = @(
-    Get-ChildItem -Path $PSScriptRoot\Classes\*.ps1 -Exclude "*.Tests.ps1" -ErrorAction SilentlyContinue -Recurse
-)
-foreach ($Class in $ClassFiles) {
+#region load classes, then private and public functions
+$ClassFiles = @(Get-ChildItem -Path (Join-Path -Path $PSScriptRoot -ChildPath 'Classes') -Filter '*.ps1' -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike '*.Tests.ps1' })
+$Private = @(Get-ChildItem -Path (Join-Path -Path $PSScriptRoot -ChildPath 'Private') -Filter '*.ps1' -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike '*.Tests.ps1' })
+$Public = @(Get-ChildItem -Path (Join-Path -Path $PSScriptRoot -ChildPath 'Public') -Filter '*.ps1' -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike '*.Tests.ps1' })
+
+foreach ($File in @($ClassFiles + $Private + $Public)) {
     try {
-        . $Class.FullName
-    } catch {
-        Write-Error -Message "Failed to import class at $($Class.FullName): $_"
+        . $File.FullName
+    }
+    catch {
+        Write-Error -Message "Failed to import '$($File.FullName)': $_"
     }
 }
 #endregion
 
-#region source the files
-foreach ($Function in @($Public + $Private)) {
-    $FunctionPath = $Function.fullname
-    try {
-        . $FunctionPath
-    } catch {
-        Write-Error -Message "Failed to import function at $($FunctionPath): $_"
-    }
-}
-#endregion
-
-#region set variables visible to the module and its functions only
-$Date = Get-Date -UFormat "%Y.%m.%d"
-$Time = Get-Date -UFormat "%H:%M:%S"
-#endregion
-
-#region export Public functions ($Public.BaseName) for WIP modules
-Export-ModuleMember -Function $Public.Basename
-#endregion
-
-#region Module Config setup and import
+#region module config, load telemetry and update check (never blocks import)
 try {
     $CurrentConfig = Get-ModuleConfig -CommandPath $PSCommandPath -ErrorAction Stop
+    Invoke-TelemetryCollection -ModuleName $CurrentConfig.ModuleName -ModuleVersion $CurrentConfig.ModuleVersion -CommandName 'Import-Module' -ExecutionID ([guid]::NewGuid().ToString()) -Stage 'Module-Load'
+    if ($CurrentConfig.UpdateWarning -eq $true) {
+        $null = Get-ModuleStatus -ShowMessage -ModuleName $CurrentConfig.ModuleName -ModulePath $CurrentConfig.ModulePath -CacheHours $CurrentConfig.UpdateCheckIntervalHours
+    }
 }
 catch {
-    Write-Error "Module Import error: `n $($_.Exception.Message)"
-}
-
-$ExecutionID = [System.Guid]::NewGuid().ToString()
-
-$TelmetryArgs = @{
-    ModuleName    = $CurrentConfig.ModuleName
-    ModulePath    = $CurrentConfig.ModulePath
-    ModuleVersion = $MyInvocation.MyCommand.Module.Version
-    ExecutionID   = $ExecutionID
-    CommandName   = $MyInvocation.MyCommand.Name
-    URI           = 'https://NOTYETDEFINED.com'
-    ClearTimer    = $true
-    Stage         = 'Module-Load'
-}
-
-if ($CurrentConfig.BasicTelemetry -eq 'True') {
-    Invoke-TelemetryCollection -Minimal @TelmetryArgs
-} else {
-    Invoke-TelemetryCollection @TelmetryArgs
-}
-
-if ($CurrentConfig.UpdateWarning -eq 'True' -or $CurrentConfig.UpdateWarning -eq $true) {
-    Get-ModuleStatus -ShowMessage -ModuleName $CurrentConfig.ModuleName -ModulePath $CurrentConfig.ModulePath
+    Write-Warning "tcs.jira configuration could not be loaded; defaults will be used. $($_.Exception.Message)"
 }
 #endregion
+
+#region clean up when the module is removed
+$ExecutionContext.SessionState.Module.OnRemove = {
+    $script:JiraCredential = $null
+    $script:JiraContext = $null
+    # Set-JiraContext mirrors the (secret-free) context to $global:JiraContext for older scripts
+    Remove-Variable -Name 'JiraContext' -Scope Global -ErrorAction SilentlyContinue
+}
+#endregion
+
+Export-ModuleMember -Function $Public.BaseName

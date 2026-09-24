@@ -1,158 +1,130 @@
-# Updates the fields of an existing Jira Cloud ticket and/or adds a comment.
-
 function Update-JiraTicket {
-    [CmdletBinding(DefaultParameterSetName = 'Default')]
+    <#
+    .SYNOPSIS
+        Updates a Jira Cloud issue: transitions it, changes fields and/or adds a comment.
+    .DESCRIPTION
+        Performs the requested changes in this order, each as a separate REST call:
+        1. -MarkDone / -MarkResolved: finds the 'Done' or 'Resolved' transition
+           (GET /rest/api/3/issue/<key>/transitions) and performs it.
+        2. -Summary / -OptionalFields: PUT /rest/api/3/issue/<key> with the fields.
+        3. -Comment: POST /rest/api/3/issue/<key>/comment (the text is sent as an ADF paragraph).
+
+        A failed transition or field update writes a non-terminating error and the remaining
+        changes are still attempted; use -ErrorAction Stop to stop on the first failure. A failed
+        comment is a terminating error. Supports -WhatIf and -Confirm.
+    .PARAMETER IssueKey
+        The issue key, for example PROJ-123.
+    .PARAMETER Summary
+        A new summary for the issue.
+    .PARAMETER Comment
+        A plain-text comment to add to the issue.
+    .PARAMETER OptionalFields
+        A hashtable of other fields to set, keyed by field id, for example @{ labels = @('ops') }.
+    .PARAMETER MarkDone
+        Transitions the issue to Done.
+    .PARAMETER MarkResolved
+        Transitions the issue to Resolved.
+    .EXAMPLE
+        Update-JiraTicket -IssueKey 'PROJ-123' -Comment 'Deployed to production' -MarkDone
+
+        Transitions the issue to Done and adds a comment.
+    .EXAMPLE
+        Update-JiraTicket -IssueKey 'PROJ-123' -Summary 'New title' -OptionalFields @{ labels = @('ops', 'urgent') }
+
+        Changes the summary and labels.
+    .OUTPUTS
+        None.
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Default', SupportsShouldProcess = $true)]
     param (
         [Parameter(Mandatory = $true, ParameterSetName = 'Default')]
         [Parameter(Mandatory = $true, ParameterSetName = 'MarkDone')]
         [Parameter(Mandatory = $true, ParameterSetName = 'MarkResolved')]
+        [ValidateNotNullOrEmpty()]
         [string]$IssueKey,
 
-        [Parameter(Mandatory = $false, ParameterSetName = 'Default', HelpMessage = "A new summary for the ticket.")]
-        [Parameter(Mandatory = $false, ParameterSetName = 'MarkDone', HelpMessage = "A new summary for the ticket.")]
-        [Parameter(Mandatory = $false, ParameterSetName = 'MarkResolved', HelpMessage = "A new summary for the ticket.")]
+        [Parameter(ParameterSetName = 'Default', HelpMessage = 'A new summary for the ticket.')]
+        [Parameter(ParameterSetName = 'MarkDone', HelpMessage = 'A new summary for the ticket.')]
+        [Parameter(ParameterSetName = 'MarkResolved', HelpMessage = 'A new summary for the ticket.')]
         [string]$Summary,
 
-        [Parameter(Mandatory = $false, ParameterSetName = 'Default', HelpMessage = "A new comment to add to the ticket.")]
-        [Parameter(Mandatory = $false, ParameterSetName = 'MarkDone', HelpMessage = "A new comment to add to the ticket.")]
-        [Parameter(Mandatory = $false, ParameterSetName = 'MarkResolved', HelpMessage = "A new comment to add to the ticket.")]
+        [Parameter(ParameterSetName = 'Default', HelpMessage = 'A new comment to add to the ticket.')]
+        [Parameter(ParameterSetName = 'MarkDone', HelpMessage = 'A new comment to add to the ticket.')]
+        [Parameter(ParameterSetName = 'MarkResolved', HelpMessage = 'A new comment to add to the ticket.')]
         [string]$Comment,
 
-        [Parameter(Mandatory = $false, ParameterSetName = 'Default', HelpMessage = "A hashtable of other fields to update.")]
-        [Parameter(Mandatory = $false, ParameterSetName = 'MarkDone', HelpMessage = "A hashtable of other fields to update.")]
-        [Parameter(Mandatory = $false, ParameterSetName = 'MarkResolved', HelpMessage = "A hashtable of other fields to update.")]
+        [Parameter(ParameterSetName = 'Default', HelpMessage = 'A hashtable of other fields to update.')]
+        [Parameter(ParameterSetName = 'MarkDone', HelpMessage = 'A hashtable of other fields to update.')]
+        [Parameter(ParameterSetName = 'MarkResolved', HelpMessage = 'A hashtable of other fields to update.')]
         [hashtable]$OptionalFields,
 
-        [Parameter(Mandatory = $true, ParameterSetName = 'MarkDone', HelpMessage = "Mark the ticket as Done (transition to Done status)")]
+        [Parameter(Mandatory = $true, ParameterSetName = 'MarkDone', HelpMessage = 'Mark the ticket as Done (transition to Done status)')]
         [switch]$MarkDone,
 
-        [Parameter(Mandatory = $true, ParameterSetName = 'MarkResolved', HelpMessage = "Mark the ticket as Resolved (transition to Resolved status)")]
+        [Parameter(Mandatory = $true, ParameterSetName = 'MarkResolved', HelpMessage = 'Mark the ticket as Resolved (transition to Resolved status)')]
         [switch]$MarkResolved
     )
 
-
-    begin {
-        if (-not $Summary -and -not $Comment -and -not $OptionalFields -and -not $MarkDone -and -not $MarkResolved) {
-            throw "You must provide at least one of -Summary, -Comment, -OptionalFields, or -MarkDone to update a ticket."
-        }
-        Write-Host "--- Starting Update-JiraTicket for '$($IssueKey)' ---" -ForegroundColor Cyan
+    if (-not $Summary -and -not $Comment -and -not $OptionalFields -and -not $MarkDone -and -not $MarkResolved) {
+        throw 'You must provide at least one of -Summary, -Comment, -OptionalFields, -MarkDone or -MarkResolved to update a ticket.'
     }
-    process {
+    Write-Verbose "Starting Update-JiraTicket for '$IssueKey'"
 
-        # --- Mark as Done (Transition) ---
-        if ($MarkDone) {
-            Write-Host "[DEBUG] Attempting to mark ticket as Done..." -ForegroundColor Yellow
-            try {
-                $transitions = Invoke-JiraRequest -Method Get -Resource 'issue' -Id "$IssueKey/transitions"
-                $doneTransition = $null
-                if ($transitions && $transitions.transitions) {
-                    $doneTransition = $transitions.transitions | Where-Object { $_.name -match 'Done' }
-                }
-                if ($doneTransition) {
-                    $transitionId = $doneTransition[0].id
-                    $body = @{ transition = @{ id = $transitionId } } | ConvertTo-Json
-                    Write-Host "[DEBUG] Transitioning $IssueKey to Done using transition id $transitionId" -ForegroundColor Gray
-                    Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/transitions" -Body $body
-                    Write-Host "[SUCCESS] Ticket $IssueKey transitioned to Done." -ForegroundColor Green
-                } else {
-                    Write-Warning "No 'Done' transition found for ticket $IssueKey."
-                }
-            } catch {
-                Write-Warning "Failed to transition ticket $IssueKey to Done. Reason: $_"
+    # --- Transition (Done / Resolved) ---
+    $targetStatus = $null
+    if ($MarkDone) { $targetStatus = 'Done' }
+    if ($MarkResolved) { $targetStatus = 'Resolved' }
+    if ($targetStatus -and $PSCmdlet.ShouldProcess($IssueKey, "Transition to $targetStatus")) {
+        try {
+            $transitions = Invoke-JiraRequest -Method Get -Resource 'issue' -Id "$IssueKey/transitions" -ErrorAction Stop
+            $transition = Select-JiraTransition -Transition @($transitions.transitions) -Name $targetStatus
+            if ($transition) {
+                $body = @{ transition = @{ id = [string]$transition.id } } | ConvertTo-Json
+                Write-Verbose "Transitioning $IssueKey to $targetStatus using transition id $($transition.id)"
+                $null = Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/transitions" -Body $body -ErrorAction Stop
+                Write-Verbose "Ticket $IssueKey transitioned to $targetStatus."
+            }
+            else {
+                Write-Warning "No '$targetStatus' transition found for ticket $IssueKey."
             }
         }
-
-        # --- Mark as Resolved (Transition) ---
-        if ($MarkResolved) {
-            Write-Host "[DEBUG] Attempting to mark ticket as Resolved..." -ForegroundColor Yellow
-            try {
-                $transitions = Invoke-JiraRequest -Method Get -Resource 'issue' -Id "$IssueKey/transitions"
-                $resolvedTransition = $null
-                if ($transitions && $transitions.transitions) {
-                    $resolvedTransition = $transitions.transitions | Where-Object { $_.name -match 'Resolved' }
-                }
-                if ($resolvedTransition) {
-                    $transitionId = $resolvedTransition[0].id
-                    $body = @{ transition = @{ id = $transitionId } } | ConvertTo-Json
-                    Write-Host "[DEBUG] Transitioning $IssueKey to Resolved using transition id $transitionId" -ForegroundColor Gray
-                    Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/transitions" -Body $body
-                    Write-Host "[SUCCESS] Ticket $IssueKey transitioned to Resolved." -ForegroundColor Green
-                } else {
-                    Write-Warning "No 'Resolved' transition found for ticket $IssueKey."
-                }
-            } catch {
-                Write-Warning "Failed to transition ticket $IssueKey to Resolved. Reason: $_"
-            }
-        }
-
-        # --- Update Ticket Fields ---
-        Write-Host "[DEBUG] Checking if fields need updating..." -ForegroundColor Gray
-        if ($PSBoundParameters.ContainsKey('Summary') -or $PSBoundParameters.ContainsKey('OptionalFields')) {
-            Write-Host "[DEBUG] Attempting to update ticket fields..." -ForegroundColor Yellow
-            try {
-                $fieldsToUpdate = @{}
-                if ($PSBoundParameters.ContainsKey('Summary')) {
-                    $fieldsToUpdate.summary = $Summary
-                    Write-Host "[DEBUG] Summary to update: '$($Summary)'" -ForegroundColor Gray
-                }
-                if ($PSBoundParameters.ContainsKey('OptionalFields')) {
-                    foreach ($key in $OptionalFields.Keys) {
-                        $fieldsToUpdate[$key] = $OptionalFields[$key]
-                    }
-                }
-
-                if ($fieldsToUpdate.Count -gt 0) {
-                    $updateBody = @{ fields = $fieldsToUpdate }
-                    $jsonUpdateBody = $updateBody | ConvertTo-Json -Depth 10
-                    Write-Host "[DEBUG] Field update request body: $jsonUpdateBody" -ForegroundColor Gray
-                    Invoke-JiraRequest -Method Put -Resource 'issue' -Id $IssueKey -Body $jsonUpdateBody
-                    Write-Host "[SUCCESS] Field update request for $IssueKey completed." -ForegroundColor Green
-                }
-            }
-            catch {
-                Write-Warning "Failed to update fields for ticket $IssueKey. Reason: $_"
-            }
-        } else {
-            Write-Host "[DEBUG] No fields to update." -ForegroundColor Gray
-        }
-
-        # --- Add Comment ---
-        Write-Host "[DEBUG] Checking if a comment needs to be added..." -ForegroundColor Gray
-        if ($PSBoundParameters.ContainsKey('Comment')) {
-            Write-Host "[DEBUG] Attempting to add comment..." -ForegroundColor Yellow
-            try {
-                Write-Host "[DEBUG] Comment to add: '$($Comment)'" -ForegroundColor Gray
-                $commentBody = @{
-                    body = @{
-                        type    = "doc"
-                        version = 1
-                        content = @(
-                            @{
-                                type    = "paragraph"
-                                content = @(
-                                    @{
-                                        type = "text"
-                                        text = $Comment
-                                    }
-                                )
-                            }
-                        )
-                    }
-                }
-                $jsonCommentBody = $commentBody | ConvertTo-Json -Depth 10
-                Write-Host "[DEBUG] Comment request body: $jsonCommentBody" -ForegroundColor Gray
-                Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/comment" -Body $jsonCommentBody
-                Write-Host "[SUCCESS] Add comment request for $IssueKey completed." -ForegroundColor Green
-            }
-            catch {
-                throw "Failed to add comment to ticket $IssueKey. Reason: $_"
-            }
-        } else {
-            Write-Host "[DEBUG] No comment to add." -ForegroundColor Gray
+        catch {
+            Write-Error -Message "Failed to transition ticket $IssueKey to $targetStatus. $($_.Exception.Message)"
         }
     }
 
-    end {
-        Write-Host "--- Finished Update-JiraTicket for '$($IssueKey)' ---" -ForegroundColor Cyan
+    # --- Update fields ---
+    $fieldsToUpdate = @{}
+    if ($PSBoundParameters.ContainsKey('Summary')) {
+        $fieldsToUpdate['summary'] = $Summary
     }
+    if ($OptionalFields) {
+        foreach ($key in $OptionalFields.Keys) {
+            $fieldsToUpdate[$key] = $OptionalFields[$key]
+        }
+    }
+    if ($fieldsToUpdate.Count -gt 0 -and $PSCmdlet.ShouldProcess($IssueKey, "Update fields: $(@($fieldsToUpdate.Keys) -join ', ')")) {
+        try {
+            $jsonUpdateBody = @{ fields = $fieldsToUpdate } | ConvertTo-Json -Depth 10
+            $null = Invoke-JiraRequest -Method Put -Resource 'issue' -Id $IssueKey -Body $jsonUpdateBody -ErrorAction Stop
+            Write-Verbose "Field update request for $IssueKey completed."
+        }
+        catch {
+            Write-Error -Message "Failed to update fields for ticket $IssueKey. $($_.Exception.Message)"
+        }
+    }
+
+    # --- Add comment ---
+    if ($PSBoundParameters.ContainsKey('Comment') -and $PSCmdlet.ShouldProcess($IssueKey, 'Add comment')) {
+        try {
+            $jsonCommentBody = @{ body = (ConvertTo-JiraDocument -Text $Comment) } | ConvertTo-Json -Depth 10
+            $null = Invoke-JiraRequest -Method Post -Resource 'issue' -Id "$IssueKey/comment" -Body $jsonCommentBody -ErrorAction Stop
+            Write-Verbose "Comment added to $IssueKey."
+        }
+        catch {
+            throw "Failed to add comment to ticket $IssueKey. $($_.Exception.Message)"
+        }
+    }
+
+    Write-Verbose "Finished Update-JiraTicket for '$IssueKey'"
 }
