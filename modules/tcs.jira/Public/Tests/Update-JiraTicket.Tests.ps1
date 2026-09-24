@@ -16,10 +16,11 @@ Describe 'Update-JiraTicket' {
     BeforeEach {
         Mock -ModuleName tcs.jira Invoke-RestMethod {
             if ($Method -eq 'Get' -and $Uri -like '*/transitions') {
+                # 'Not Done' is listed first: a whole-word match on the name used to pick it for Done
                 return [pscustomobject]@{ transitions = @(
-                        [pscustomobject]@{ id = '11'; name = 'Undone work' },
-                        [pscustomobject]@{ id = '31'; name = 'Done' },
-                        [pscustomobject]@{ id = '41'; name = 'Resolved' }
+                        [pscustomobject]@{ id = '11'; name = 'Not Done'; to = [pscustomobject]@{ name = "Won't Do" } },
+                        [pscustomobject]@{ id = '31'; name = 'Complete'; to = [pscustomobject]@{ name = 'Done' } },
+                        [pscustomobject]@{ id = '41'; name = 'Resolve Issue'; to = [pscustomobject]@{ name = 'Resolved' } }
                     )
                 }
             }
@@ -34,7 +35,7 @@ Describe 'Update-JiraTicket' {
         Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly
     }
 
-    It 'Performs the exact Done transition' {
+    It 'Performs the transition whose target status is Done' {
         Update-JiraTicket -IssueKey 'PROJ-1' -MarkDone
         Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
             $Uri -eq "$Base/rest/api/3/issue/PROJ-1/transitions" -and $Method -eq 'Get'
@@ -45,18 +46,33 @@ Describe 'Update-JiraTicket' {
         }
     }
 
-    It 'Performs the Resolved transition' {
+    It 'Performs the transition whose target status is Resolved' {
         Update-JiraTicket -IssueKey 'PROJ-1' -MarkResolved
         Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
             $Method -eq 'Post' -and ($Body | ConvertFrom-Json).transition.id -eq '41'
         }
     }
 
-    It 'Warns when no matching transition exists' {
-        Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ transitions = @([pscustomobject]@{ id = '1'; name = 'Start' }) } }
-        Update-JiraTicket -IssueKey 'PROJ-1' -MarkDone -WarningVariable warnings -WarningAction SilentlyContinue
-        $warnings | Should -Not -BeNullOrEmpty
+    It 'Writes an error that lists the available transitions when none leads to the status' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ transitions = @([pscustomobject]@{ id = '1'; name = 'Start'; to = [pscustomobject]@{ name = 'In Progress' } }) } }
+        Update-JiraTicket -IssueKey 'PROJ-1' -MarkDone -ErrorVariable errors -ErrorAction SilentlyContinue
+        $failed = @($errors | Where-Object { $_.FullyQualifiedErrorId -like 'JiraTransitionFailed*' })
+        $failed.Count | Should -Be 1
+        $failed[0].Exception.Message | Should -Match "No transition to status 'Done'"
+        $failed[0].Exception.Message | Should -Match "'Start' \(to 'In Progress'\)"
         Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly -ParameterFilter { $Method -eq 'Post' }
+    }
+
+    It 'Takes issue keys from the pipeline by property name' {
+        @([pscustomobject]@{ key = 'PROJ-1' }, [pscustomobject]@{ IssueKey = 'PROJ-2' }) | Update-JiraTicket -Comment 'Bulk'
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Uri -eq "$Base/rest/api/3/issue/PROJ-1/comment" }
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Uri -eq "$Base/rest/api/3/issue/PROJ-2/comment" }
+    }
+
+    It 'Rejects issue keys that could change the request path' {
+        { Update-JiraTicket -IssueKey 'PROJ-1/../../myself' -Comment 'x' } | Should -Throw
+        { Update-JiraTicket -IssueKey 'PROJ-1?x=1' -Comment 'x' } | Should -Throw
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly
     }
 
     It 'Updates summary and optional fields with one PUT' {
@@ -102,9 +118,14 @@ Describe 'Update-JiraTicket' {
         { Update-JiraTicket -IssueKey 'PROJ-1' -Summary 'S' -ErrorAction Stop } | Should -Throw '*Failed to update fields*'
     }
 
-    It 'Throws when the comment cannot be added' {
+    It 'Rethrows the original error record when the comment cannot be added' {
         Mock -ModuleName tcs.jira Invoke-RestMethod { throw 'Forbidden' } -ParameterFilter { $Uri -like '*/comment' }
-        { Update-JiraTicket -IssueKey 'PROJ-1' -Comment 'C' } | Should -Throw '*Failed to add comment*'
+        $caught = $null
+        try { Update-JiraTicket -IssueKey 'PROJ-1' -Comment 'C' } catch { $caught = $_ }
+        $caught | Should -Not -BeNullOrEmpty
+        $caught.FullyQualifiedErrorId | Should -BeLike 'JiraRequestFailed*'
+        $caught.Exception.Message | Should -Match 'PROJ-1/comment'
+        $caught.Exception.Message | Should -Match 'Forbidden'
     }
 }
 
@@ -133,7 +154,7 @@ Describe 'Update-JiraTicket telemetry' {
 
     It 'Sends a failed End event when adding the comment fails' {
         Mock -ModuleName tcs.jira Invoke-RestMethod { throw 'Server error' }
-        { Update-JiraTicket -IssueKey 'PROJ-1' -Comment 'Hello' } | Should -Throw '*Failed to add comment*'
+        { Update-JiraTicket -IssueKey 'PROJ-1' -Comment 'Hello' } | Should -Throw '*Server error*'
         Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
             $CommandName -eq 'Update-JiraTicket' -and $Stage -eq 'End' -and $Failed -eq $true
         }

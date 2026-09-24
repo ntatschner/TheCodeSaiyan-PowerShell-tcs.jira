@@ -45,17 +45,51 @@ Describe 'ConvertTo-JiraDocument' {
 }
 
 Describe 'Select-JiraTransition' {
-    It 'Prefers an exact name match' {
+    It 'Matches the target status before the transition name' {
         InModuleScope tcs.jira {
-            $list = @([pscustomobject]@{ id = '1'; name = 'Not Done' }, [pscustomobject]@{ id = '2'; name = 'done' })
+            $list = @(
+                [pscustomobject]@{ id = '1'; name = 'Done'; to = [pscustomobject]@{ name = 'Closed' } },
+                [pscustomobject]@{ id = '2'; name = 'Finish'; to = [pscustomobject]@{ name = 'done' } }
+            )
             (Select-JiraTransition -Transition $list -Name 'Done').id | Should -Be '2'
         }
     }
 
-    It 'Falls back to a whole-word match' {
+    It 'Never picks "Not Done" for Done (ambiguous names)' {
         InModuleScope tcs.jira {
-            $list = @([pscustomobject]@{ id = '1'; name = 'Undone' }, [pscustomobject]@{ id = '2'; name = 'Mark as Done' })
+            $list = @(
+                [pscustomobject]@{ id = '1'; name = 'Not Done'; to = [pscustomobject]@{ name = "Won't Do" } },
+                [pscustomobject]@{ id = '2'; name = 'Complete'; to = [pscustomobject]@{ name = 'Done' } }
+            )
             (Select-JiraTransition -Transition $list -Name 'Done').id | Should -Be '2'
+            Select-JiraTransition -Transition @($list[0]) -Name 'Done' | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'Finds "Resolve Issue" for Resolved through its target status' {
+        InModuleScope tcs.jira {
+            $list = @(
+                [pscustomobject]@{ id = '5'; name = 'Start Progress'; to = [pscustomobject]@{ name = 'In Progress' } },
+                [pscustomobject]@{ id = '9'; name = 'Resolve Issue'; to = [pscustomobject]@{ name = 'Resolved' } }
+            )
+            (Select-JiraTransition -Transition $list -Name 'Resolved').id | Should -Be '9'
+        }
+    }
+
+    It 'Falls back to an exact transition name (Service Management transitions have no target)' {
+        InModuleScope tcs.jira {
+            $list = @([pscustomobject]@{ id = '5'; name = 'Cancel request' }, [pscustomobject]@{ id = '761'; name = 'done' })
+            (Select-JiraTransition -Transition $list -Name 'Done').id | Should -Be '761'
+        }
+    }
+
+    It 'Does no partial or whole-word matching' {
+        InModuleScope tcs.jira {
+            $list = @(
+                [pscustomobject]@{ id = '1'; name = 'Undone'; to = [pscustomobject]@{ name = 'Open' } },
+                [pscustomobject]@{ id = '2'; name = 'Mark as Done'; to = [pscustomobject]@{ name = 'Closed' } }
+            )
+            Select-JiraTransition -Transition $list -Name 'Done' | Should -BeNullOrEmpty
         }
     }
 

@@ -50,12 +50,49 @@ Describe 'Update-JSMRequest' {
         }
     }
 
-    It 'Adds a comment without doubling the API prefix' {
+    It 'Adds a public comment through the Service Management API' {
         Update-JSMRequest -IssueKey 'SD-1' -Comment 'Shipped'
         Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
-            $Uri -eq "$Base/rest/api/3/issue/SD-1/comment" -and $Method -eq 'Post' -and
-            ($Body | ConvertFrom-Json).body.content[0].content[0].text -eq 'Shipped'
+            $sent = if ($Body) { $Body | ConvertFrom-Json } else { [pscustomobject]@{} }
+            $Uri -eq "$Base/rest/servicedeskapi/request/SD-1/comment" -and $Method -eq 'Post' -and
+            $sent.body -eq 'Shipped' -and $sent.public -eq $true
         }
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly -ParameterFilter { $Uri -like '*/rest/api/3/*' }
+    }
+
+    It 'Adds an internal comment with -Internal' {
+        Update-JSMRequest -IssueKey 'SD-1' -Comment 'Agents only' -Internal
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $sent = if ($Body) { $Body | ConvertFrom-Json } else { [pscustomobject]@{} }
+            $Uri -eq "$Base/rest/servicedeskapi/request/SD-1/comment" -and $sent.public -eq $false
+        }
+    }
+
+    It 'Rethrows the original error record when the comment cannot be added' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { throw 'Forbidden' } -ParameterFilter { $Uri -like '*/comment' }
+        $caught = $null
+        try { Update-JSMRequest -IssueKey 'SD-1' -Comment 'C' } catch { $caught = $_ }
+        $caught.FullyQualifiedErrorId | Should -BeLike 'JiraRequestFailed*'
+        $caught.Exception.Message | Should -Match 'Forbidden'
+    }
+
+    It 'Writes an error listing the transitions when there is no Done transition' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ isLastPage = $true; values = @([pscustomobject]@{ id = '5'; name = 'Cancel request' }, [pscustomobject]@{ id = '6'; name = 'Not Done' }) } }
+        Update-JSMRequest -IssueKey 'SD-1' -MarkDone -ErrorVariable errors -ErrorAction SilentlyContinue
+        $failed = @($errors | Where-Object { $_.FullyQualifiedErrorId -like 'JiraTransitionFailed*' })
+        $failed.Count | Should -Be 1
+        $failed[0].Exception.Message | Should -Match "'Cancel request', 'Not Done'"
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly -ParameterFilter { $Method -eq 'Post' }
+    }
+
+    It 'Takes issue keys from the pipeline by property name' {
+        [pscustomobject]@{ Key = 'SD-7' } | Update-JSMRequest -Summary 'Piped'
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Uri -eq "$Base/rest/api/3/issue/SD-7" -and $Method -eq 'Put' }
+    }
+
+    It 'Rejects issue keys that could change the request path' {
+        { Update-JSMRequest -IssueKey 'SD-1/../../x' -Comment 'x' } | Should -Throw
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly
     }
 
     It 'Writes nothing to the pipeline or the host' {
