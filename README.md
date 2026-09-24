@@ -32,16 +32,27 @@ Import-Module ./TheCodeSaiyan-PowerShell-tcs.jira/modules/tcs.jira/tcs.jira.psd1
 | Function | Purpose |
 | --- | --- |
 | `Set-JiraContext` | Sets the site URL and credentials for the session (nothing is saved to disk) |
+| `Get-JiraContext` | Returns the site URL and user name of the session (never the token) |
+| `Test-JiraContext` | Checks the connection by getting the signed-in user (`/rest/api/3/myself`) |
+| `Clear-JiraContext` | Removes the connection and credential from the session |
 | `Invoke-JiraRequest` | Calls any Jira / Service Management endpoint; handles paths, JQL search, paging, retries and errors |
-| `Get-JiraTicket` | Gets an issue with its comments (comment bodies as plain text) |
-| `New-JiraTicket` | Creates an issue |
+| `Find-JiraIssue` | Finds issues with JQL; the output can be piped to the issue commands |
+| `Get-JiraTicket` | Gets an issue with its comments (description and comment bodies also as plain text) |
+| `New-JiraTicket` | Creates an issue, with any other fields through `-Fields` |
 | `Update-JiraTicket` | Transitions an issue to Done/Resolved, updates fields and/or adds a comment |
+| `Get-JiraIssueTransition` | Lists the transitions of an issue and their target statuses |
+| `Invoke-JiraIssueTransition` | Moves an issue to a status by name, optionally with a comment |
+| `Get-JSMServiceDesk` | Lists the Service Management service desks, or gets one |
+| `Get-JSMRequestType` | Lists the request types of a service desk, or gets one |
 | `Get-JSMRequest` | Gets a Service Management request |
 | `New-JSMRequest` | Creates a Service Management request, optionally on behalf of a customer |
-| `Update-JSMRequest` | Marks a request done, updates fields and/or adds a comment |
+| `Update-JSMRequest` | Marks a request done, updates fields and/or adds a public or internal comment |
+| `Get-JSMRequestTransition` | Lists the customer transitions of a request |
 | `Set-JSMRequestTransition` | Performs a customer transition on a request |
 
-`New-*`, `Update-*` and `Set-*` functions support `-WhatIf` and `-Confirm`.
+`New-*`, `Update-*`, `Set-*`, `Clear-JiraContext` and `Invoke-JiraIssueTransition` support
+`-WhatIf` and `-Confirm`. `Get-JiraTicket`, `Update-JiraTicket`, `Update-JSMRequest` and the
+transition commands take issue keys from the pipeline (an `IssueKey` or `Key` property).
 Run `Get-Help <function> -Full` for all parameters and examples.
 
 ### Examples
@@ -49,34 +60,48 @@ Run `Get-Help <function> -Full` for all parameters and examples.
 ```powershell
 # Connect (prompts for the API token and keeps it in a SecureString)
 Set-JiraContext -JiraUrl 'https://contoso.atlassian.net' -Credential (Get-Credential -UserName 'me@contoso.com')
+Test-JiraContext | Select-Object displayName, emailAddress
 
 # Issues
 Get-JiraTicket -IssueKey 'PROJ-123'
 $issue = New-JiraTicket -ProjectKey 'PROJ' -IssueType 'Task' -Summary 'Rotate certificates' -Description 'Expires next month'
 Update-JiraTicket -IssueKey $issue.key -Comment 'Done in change CHG-42' -MarkDone
+Invoke-JiraIssueTransition -IssueKey 'PROJ-124' -Status 'In Progress'
+New-JiraTicket -ProjectKey 'PROJ' -IssueType 'Task' -Summary 'Patch servers' -Fields @{ labels = @('patching') }
 
-# JQL search (follows pages up to -MaxQueryPages, default 10)
-Invoke-JiraRequest -Method Get -JQL 'project = PROJ AND statusCategory != Done' -Query @{ maxResults = 100 }
+# JQL search, then act on every result
+Find-JiraIssue -JQL 'project = PROJ AND labels = stale' -Fields summary, status -MaxResults 200 |
+    Update-JiraTicket -Comment 'Closing stale issue' -MarkDone
 
 # Service Management
+Get-JSMServiceDesk | Where-Object projectKey -EQ 'SD' | Get-JSMRequestType | Select-Object id, name
 $request = New-JSMRequest -ServiceDeskId '1' -RequestTypeId '10' -Summary 'New laptop' -Reporter 'user@contoso.com'
-Update-JSMRequest -IssueKey $request.issueKey -Comment 'Laptop shipped' -MarkDone
+Update-JSMRequest -IssueKey $request.issueKey -Comment 'Checking stock' -Internal   # agents only
+Update-JSMRequest -IssueKey $request.issueKey -Comment 'Laptop shipped' -MarkDone   # public
 
 # Any other endpoint
 Invoke-JiraRequest -Method Get -URIPath '/myself'                         # /rest/api/3/myself
 Invoke-JiraRequest -Method Get -URIPath '/servicedeskapi/servicedesk'     # /rest/servicedeskapi/servicedesk
 Invoke-JiraRequest -Method Get -URIPath '/rest/agile/1.0/board'           # used as given
+Invoke-JiraRequest -Method Post -URIPath '/issue/bulk' -Body @{ issueUpdates = $updates } -Raw   # whole response, with 'errors'
 ```
 
 ### Notes
 
-- `Get-JiraTicket` returns comments as `JiraComment` objects. The class is defined inside the
-  module and loaded by dot-sourcing, so the `[JiraComment]` type literal is not available in your
-  own scripts, not even with `using module tcs.jira`. Use the objects' properties instead.
-- `New-JiraTicket -WorkloadType` sets the `customfield_14982` select field used on the author's
-  Jira site; leave it out on other sites.
+- `Get-JiraTicket` returns comments as objects with the type name `tcs.jira.Comment`
+  (`Id`, `Author`, `Body`, `Created`, `Updated`, `UpdateAuthor`). `Created` and `Updated` are
+  `[datetime]` values on the issue and its comments.
+- Transitions (`-MarkDone`, `-MarkResolved`, `Invoke-JiraIssueTransition -Status`) are matched by
+  their target status first, then by their exact name. There is no partial matching; when nothing
+  matches, the error lists the available transitions.
+- `Invoke-JiraRequest` unwraps JQL search results and pages of values and follows the next-page
+  links on the same site. Use `-Raw` to get a response exactly as Jira sent it. HTTP 429 is
+  retried for every method; other 5xx errors only for `Get`, `Put` and `Delete`, so a create is
+  never sent twice. The wait honours the `Retry-After` header.
+- Issue keys must look like `PROJ-123` (or a numeric id) and are URL-encoded in request paths.
 - The API token is held in memory for the current session only. `$global:JiraContext` is still
-  set for older scripts, but contains only the URL and user name.
+  set for older scripts, but contains only the URL and user name. It is **deprecated**: use
+  `Get-JiraContext` instead.
 
 ## Configuration
 

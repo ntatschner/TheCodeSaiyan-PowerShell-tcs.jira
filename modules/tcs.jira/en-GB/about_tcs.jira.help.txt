@@ -16,39 +16,64 @@ LONG DESCRIPTION
     written to disk. The token is held as a SecureString in a PSCredential in
     module scope and the HTTP Basic Authorization header is built for each
     request, so the token does not appear in the context object, in verbose
-    output or in error messages. The secret-free context is also mirrored to
-    $global:JiraContext for older scripts.
+    output or in error messages. Test-JiraContext checks the connection,
+    Get-JiraContext shows it and Clear-JiraContext removes it. The
+    secret-free context is also mirrored to $global:JiraContext for older
+    scripts; this is deprecated and will be removed, use Get-JiraContext.
 
-    New-*, Update-*, Set-JSMRequestTransition and Set-JiraContext support
-    -WhatIf and -Confirm.
+    New-*, Update-*, Set-JSMRequestTransition, Set-JiraContext,
+    Clear-JiraContext and Invoke-JiraIssueTransition support -WhatIf and
+    -Confirm. Get-JiraTicket, Update-JiraTicket, Update-JSMRequest and the
+    transition commands take issue keys from the pipeline (an IssueKey or Key
+    property), so the output of Find-JiraIssue can be piped to them.
+
+    Issue keys must look like PROJ-123 (or be a numeric id) and are
+    URL-encoded in request paths. Transitions are chosen by their target
+    status first and then by their exact name; when nothing matches, the
+    error lists the available transitions.
 
 COMMANDS
     Connection
         Set-JiraContext           Sets the Jira Cloud site and credentials used
                                   by the other tcs.jira functions.
+        Get-JiraContext           Gets the connection context, without
+                                  secrets.
+        Test-JiraContext          Checks the connection by getting the
+                                  signed-in user.
+        Clear-JiraContext         Removes the connection context and
+                                  credential.
 
     Generic requests
         Invoke-JiraRequest        Sends a request to the Jira Cloud or Jira
                                   Service Management REST API, with JQL search,
-                                  paging and retries for HTTP 429 and 503.
+                                  paging, retries (HTTP 429 for every method,
+                                  5xx for Get, Put and Delete) and -Raw.
 
     Jira issues
+        Find-JiraIssue            Finds Jira Cloud issues with a JQL query.
         Get-JiraTicket            Gets a Jira Cloud issue with its comments.
         New-JiraTicket            Creates a Jira Cloud issue.
         Update-JiraTicket         Updates a Jira Cloud issue: transitions it
                                   (Done or Resolved), changes fields and/or
                                   adds a comment.
+        Get-JiraIssueTransition   Gets the transitions of a Jira Cloud issue.
+        Invoke-JiraIssueTransition
+                                  Moves a Jira Cloud issue to a status,
+                                  optionally with a comment.
 
     Jira Service Management requests
+        Get-JSMServiceDesk        Gets Jira Service Management service desks.
+        Get-JSMRequestType        Gets the request types of a service desk.
         Get-JSMRequest            Gets a Jira Service Management customer
                                   request.
         New-JSMRequest            Creates a Jira Service Management customer
                                   request.
+        Get-JSMRequestTransition  Gets the customer transitions of a request.
         Set-JSMRequestTransition  Transitions a Jira Service Management request
                                   to a new status.
         Update-JSMRequest         Updates a Jira Service Management request:
                                   marks it done, changes fields and/or adds a
-                                  comment.
+                                  public or internal comment.
 
 CONFIGURATION
     tcs.jira uses the tcs.core settings file for the module:
@@ -95,9 +120,17 @@ EXAMPLES
 
         (Get-JiraTicket -IssueKey 'PROJ-123').Comments | Select-Object Author, Created, Body
 
-    Find issues with JQL:
+    Check the connection:
 
-        Invoke-JiraRequest -Method Get -JQL 'project = PROJ AND status = "In Progress"'
+        Test-JiraContext | Select-Object displayName, emailAddress
+
+    Find issues with JQL and comment on each of them:
+
+        Find-JiraIssue -JQL 'project = PROJ AND status = "In Progress"' | Update-JiraTicket -Comment 'Reviewed'
+
+    Move an issue to a status:
+
+        Invoke-JiraIssueTransition -IssueKey 'PROJ-123' -Status 'In Progress'
 
     Transition an issue to Done and add a comment:
 
@@ -110,6 +143,8 @@ EXAMPLES
 SEE ALSO
     about_tcs.core
     Set-JiraContext
+    Test-JiraContext
+    Find-JiraIssue
     Invoke-JiraRequest
     Get-ModuleConfig
     Set-ModuleConfig
