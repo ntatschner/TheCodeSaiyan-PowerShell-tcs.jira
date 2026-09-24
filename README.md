@@ -115,3 +115,7 @@ identifiers, command arguments, error messages, Jira site URLs, issue data or cr
 
 Turn it off with `Set-ModuleConfig -ModuleName tcs.jira -Telemetry $false`, or for all tcs
 modules with the environment variable `TCS_TELEMETRY_OPTOUT=1`.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
