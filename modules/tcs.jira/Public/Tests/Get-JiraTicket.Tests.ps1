@@ -23,7 +23,7 @@ Describe 'Get-JiraTicket' {
                 reporter    = [pscustomobject]@{ displayName = 'Bob' }
                 created     = '2024-01-01T10:00:00.000+0000'
                 updated     = '2024-01-02T10:00:00.000+0000'
-                description = 'desc'
+                description = [pscustomobject]@{ type = 'doc'; version = 1; content = @([pscustomobject]@{ type = 'paragraph'; content = @([pscustomobject]@{ type = 'text'; text = 'Build fails on main' }) }) }
                 comment     = [pscustomobject]@{
                     comments = @(
                         [pscustomobject]@{
@@ -61,18 +61,44 @@ Describe 'Get-JiraTicket' {
         $ticket.Reporter | Should -Be 'Bob'
     }
 
-    It 'Returns comments as JiraComment objects with plain-text bodies' {
+    It 'Returns Created and Updated as [datetime] and the description as ADF and plain text' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { $issue }
+        $ticket = Get-JiraTicket -IssueKey 'PROJ-7'
+        $ticket.Created | Should -BeOfType ([datetime])
+        $ticket.Updated | Should -BeOfType ([datetime])
+        $ticket.Created.ToUniversalTime() | Should -Be ([datetime]::new(2024, 1, 1, 10, 0, 0, [System.DateTimeKind]::Utc))
+        $ticket.Description.type | Should -Be 'doc'
+        $ticket.DescriptionText | Should -Be 'Build fails on main'
+    }
+
+    It 'Takes issue keys from the pipeline by property name' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { $issue }
+        $tickets = @([pscustomobject]@{ key = 'PROJ-7' }, [pscustomobject]@{ key = 'PROJ-8' } | Get-JiraTicket)
+        $tickets.Count | Should -Be 2
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Uri -eq "$Base/rest/api/3/issue/PROJ-8" }
+    }
+
+    It 'Rejects issue keys that could change the request path' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { $issue }
+        { Get-JiraTicket -IssueKey 'PROJ-7?expand=x' } | Should -Throw
+        { Get-JiraTicket -IssueKey '../../myself' } | Should -Throw
+        Get-JiraTicket -IssueKey '10001' | Should -Not -BeNullOrEmpty
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
+    }
+
+    It 'Returns comments as tcs.jira.Comment objects with plain-text bodies' {
         Mock -ModuleName tcs.jira Invoke-RestMethod { $issue }
         $ticket = Get-JiraTicket -IssueKey 'PROJ-7'
         @($ticket.Comments).Count | Should -Be 1
         $comment = $ticket.Comments[0]
-        $comment.GetType().Name | Should -Be 'JiraComment'
+        $comment.PSObject.TypeNames | Should -Contain 'tcs.jira.Comment'
         $comment.Id | Should -Be '100'
         $comment.Author | Should -Be 'Ann'
         $comment.UpdateAuthor | Should -Be 'Carl'
         $comment.Body | Should -Be "Hello world`nSecond line"
         $comment.Created | Should -BeOfType ([datetime])
         $comment.Created.ToUniversalTime() | Should -Be ([datetime]::new(2024, 1, 1, 11, 0, 0, [System.DateTimeKind]::Utc))
+        $comment.Updated | Should -BeOfType ([datetime])
     }
 
     It 'Handles an issue without comments' {

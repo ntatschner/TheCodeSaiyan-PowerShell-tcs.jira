@@ -5,15 +5,13 @@ $script:JiraContext = $null
 $script:JiraCredential = $null
 #endregion
 
-#region load classes, then private and public functions
-$ClassFiles = @(Get-ChildItem -Path (Join-Path -Path $PSScriptRoot -ChildPath 'Classes') -Filter '*.ps1' -Recurse -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notlike '*.Tests.ps1' })
+#region load private and public functions
 $Private = @(Get-ChildItem -Path (Join-Path -Path $PSScriptRoot -ChildPath 'Private') -Filter '*.ps1' -Recurse -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notlike '*.Tests.ps1' })
 $Public = @(Get-ChildItem -Path (Join-Path -Path $PSScriptRoot -ChildPath 'Public') -Filter '*.ps1' -Recurse -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notlike '*.Tests.ps1' })
 
-foreach ($File in @($ClassFiles + $Private + $Public)) {
+foreach ($File in @($Private + $Public)) {
     try {
         . $File.FullName
     }
