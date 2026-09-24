@@ -1,5 +1,5 @@
 @{
-    ModuleVersion        = '0.1.0'
+    ModuleVersion        = '0.1.1'
     GUID                 = 'dd02af82-ea25-4294-b76e-e072e4d992e9'
     Author               = 'Nigel Tatschner'
     CompanyName          = 'TheCodeSaiyan'
