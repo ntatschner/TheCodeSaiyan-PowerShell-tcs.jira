@@ -13,15 +13,17 @@ function New-JiraTicket {
         The issue summary.
     .PARAMETER Description
         Optional plain-text description.
-    .PARAMETER WorkloadType
-        Optional value for the 'Workload Type' select field (customfield_14982). The field is only
-        sent when a value is given.
+    .PARAMETER Fields
+        Optional hashtable of other fields to set, keyed by field id, for example
+        @{ labels = @('ops'); customfield_10010 = @{ value = 'BAU' } }. The entries are added to
+        the 'fields' object of the create request and replace fields built from the other
+        parameters when they use the same field id.
     .EXAMPLE
         New-JiraTicket -ProjectKey 'PROJ' -IssueType 'Task' -Summary 'Rotate certificates' -Description 'Expires next month'
 
         Creates a task.
     .EXAMPLE
-        New-JiraTicket -ProjectKey 'OPS' -IssueType 'Task' -Summary 'Patch servers' -WorkloadType 'BAU' -WhatIf
+        New-JiraTicket -ProjectKey 'OPS' -IssueType 'Task' -Summary 'Patch servers' -Fields @{ labels = @('patching'); customfield_10010 = @{ value = 'BAU' } } -WhatIf
 
         Shows what would be created without calling Jira.
     .OUTPUTS
@@ -44,7 +46,7 @@ function New-JiraTicket {
 
         [string]$Description,
 
-        [string]$WorkloadType
+        [hashtable]$Fields
     )
 
     $TelemetryArgs = @{
@@ -63,12 +65,14 @@ function New-JiraTicket {
             }
         }
 
-        if ($WorkloadType) {
-            $body.fields['customfield_14982'] = @{ value = $WorkloadType }
-        }
-
         if ($Description) {
             $body.fields['description'] = ConvertTo-JiraDocument -Text $Description
+        }
+
+        if ($Fields) {
+            foreach ($key in $Fields.Keys) {
+                $body.fields[[string]$key] = $Fields[$key]
+            }
         }
 
         if (-not $PSCmdlet.ShouldProcess("project $ProjectKey", "Create $IssueType '$Summary'")) {
@@ -77,7 +81,7 @@ function New-JiraTicket {
         }
 
         # Errors from Invoke-JiraRequest are terminating and bubble up to the caller
-        $ticket = Invoke-JiraRequest -Method Post -Resource 'issue' -Body ($body | ConvertTo-Json -Depth 10)
+        $ticket = Invoke-JiraRequest -Method Post -Resource 'issue' -Body $body
         if ($ticket) {
             Write-Verbose "Successfully created Jira ticket: $($ticket.key)"
             Invoke-TelemetryCollection @TelemetryArgs -Stage End

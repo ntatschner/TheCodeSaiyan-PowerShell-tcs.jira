@@ -13,6 +13,11 @@ function New-JSMRequest {
         The request summary.
     .PARAMETER Description
         Optional plain-text description.
+    .PARAMETER RequestFieldValues
+        Optional hashtable of other request fields, keyed by field id, for example
+        @{ customfield_10010 = 'Laptop model X'; priority = @{ name = 'High' } }. The entries are
+        added to 'requestFieldValues'; -Summary and -Description take precedence over entries with
+        the same key. Get-JSMRequestType shows the request types of a service desk.
     .PARAMETER Reporter
         Optional e-mail address or account id of the customer the request is raised on behalf of
         (sent as raiseOnBehalfOf). When omitted the request is raised by the account in the context.
@@ -20,6 +25,10 @@ function New-JSMRequest {
         New-JSMRequest -ServiceDeskId '1' -RequestTypeId '10' -Summary 'New laptop' -Reporter 'user@contoso.com'
 
         Raises a request on behalf of a customer.
+    .EXAMPLE
+        New-JSMRequest -ServiceDeskId '1' -RequestTypeId '10' -Summary 'New laptop' -RequestFieldValues @{ customfield_10010 = 'Model X' }
+
+        Raises a request and sets a custom field of the request type.
     .OUTPUTS
         PSCustomObject
     #>
@@ -40,6 +49,8 @@ function New-JSMRequest {
 
         [string]$Description,
 
+        [hashtable]$RequestFieldValues,
+
         [Alias('RaiseOnBehalfOf')]
         [string]$Reporter
     )
@@ -52,15 +63,22 @@ function New-JSMRequest {
     }
     Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
     try {
-        $requestFieldValues = @{ summary = $Summary }
+        # Separate name: PowerShell variable names are case-insensitive
+        $fieldValues = @{}
+        if ($RequestFieldValues) {
+            foreach ($key in $RequestFieldValues.Keys) {
+                $fieldValues[[string]$key] = $RequestFieldValues[$key]
+            }
+        }
+        $fieldValues['summary'] = $Summary
         if ($Description) {
-            $requestFieldValues['description'] = $Description
+            $fieldValues['description'] = $Description
         }
 
         $body = @{
             serviceDeskId      = $ServiceDeskId
             requestTypeId      = $RequestTypeId
-            requestFieldValues = $requestFieldValues
+            requestFieldValues = $fieldValues
         }
         if ($Reporter) {
             $body['raiseOnBehalfOf'] = $Reporter
@@ -71,7 +89,7 @@ function New-JSMRequest {
             return
         }
 
-        $result = Invoke-JiraRequest -Method Post -URIPath '/servicedeskapi/request' -Body ($body | ConvertTo-Json -Depth 5)
+        $result = Invoke-JiraRequest -Method Post -URIPath '/servicedeskapi/request' -Body $body
         if ($result) {
             Write-Verbose "Successfully created JSM request: $($result.issueKey)"
             Invoke-TelemetryCollection @TelemetryArgs -Stage End

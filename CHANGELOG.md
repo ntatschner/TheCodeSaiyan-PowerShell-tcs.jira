@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-24
+
+### Breaking changes
+- `New-JiraTicket -WorkloadType` was removed. It set `customfield_14982`, a field that only
+  exists on one Jira site. Use the new `-Fields` parameter instead, for example
+  `-Fields @{ customfield_14982 = @{ value = 'BAU' } }`.
+- Transitions are matched by target status first (`to.name`), then by exact transition name, both
+  case-insensitive. The whole-word fallback was removed: it picked "Not Done" for Done and could
+  not find "Resolve Issue" for Resolved. When no transition matches, `Update-JiraTicket` and
+  `Update-JSMRequest` write an error that lists the available transitions (was a warning).
+- `Invoke-JiraRequest` only unwraps `issues` for the JQL search endpoints. Other responses with
+  an `issues` property, such as the bulk create response with its `errors`, are returned whole.
+- `Invoke-JiraRequest` unwraps pages of values: Jira platform pages (`values` with `isLast`,
+  `nextPage`, `startAt` or `maxResults`) and Service Management pages (`values` with
+  `isLastPage`) return their values, and all pages are followed (`nextPage` and
+  `_links.next`, same site only, up to `-MaxQueryPages`). They used to return the page objects.
+  Use `-Raw` for the old single-page object.
+- `Invoke-JiraRequest` no longer retries `Post` or `Patch` on HTTP 5xx (a retried create could
+  make duplicate issues). HTTP 429 is still retried for every method.
+- `Invoke-JiraRequest -Id` is URL-encoded as one path segment. Use `-URIPath` for sub-resources
+  such as `/issue/PROJ-1/transitions`.
+- `Invoke-JiraRequest -Resource search` now calls `/rest/api/3/search/jql` (the old
+  `/rest/api/3/search` endpoint was retired by Atlassian) and rejects `-Id`.
+- `-IssueKey` must be an issue key (`PROJ-123`) or a numeric id on `Get-JiraTicket`,
+  `Update-JiraTicket`, `Get-JSMRequest`, `Update-JSMRequest` and `Set-JSMRequestTransition`;
+  `Set-JSMRequestTransition -TransitionId` must be numeric.
+- `Update-JSMRequest -Comment` uses the Service Management comment endpoint
+  (`/rest/servicedeskapi/request/<key>/comment`), sends plain text and makes a public comment.
+  Use `-Internal` for an agent-only comment.
+- A failed comment in `Update-JiraTicket` / `Update-JSMRequest` rethrows the original
+  `JiraRequestFailed` error record instead of a new string error ("Failed to add comment ...").
+- `Get-JiraTicket` returns `Created` and `Updated` as `[datetime]` (were strings) and comments as
+  `[pscustomobject]` with type name `tcs.jira.Comment`. The `JiraComment` class and the
+  `Classes` folder were removed.
+
+### Added
+- `Find-JiraIssue -JQL [-Fields] [-MaxResults]` returns issues from the enhanced JQL search.
+- Pipeline input by property name (`IssueKey`, alias `Key`) for `Get-JiraTicket`,
+  `Update-JiraTicket` and `Update-JSMRequest`, so `Find-JiraIssue ... | Update-JiraTicket` works.
+- `Get-JiraIssueTransition` and `Invoke-JiraIssueTransition -Status <name> [-Comment]`.
+  `Update-JiraTicket -MarkDone` / `-MarkResolved` use the same transition logic.
+- `Get-JSMRequestTransition`, `Get-JSMServiceDesk` and `Get-JSMRequestType`.
+- `New-JSMRequest -RequestFieldValues` for other request fields.
+- `New-JiraTicket -Fields` for any other fields.
+- `Update-JSMRequest -Internal` for internal comments.
+- `Test-JiraContext` (checks the connection with `/rest/api/3/myself`), `Get-JiraContext`
+  (the context without secrets) and `Clear-JiraContext`.
+- `Invoke-JiraRequest -Raw` returns the response exactly as Jira sends it (no unwrapping, one
+  request). `-Body` accepts a hashtable or other object (converted to JSON with depth 20) as well
+  as a JSON string.
+- `Invoke-JiraRequest` honours the `Retry-After` header (capped at 60 seconds) and otherwise waits
+  2, then 4 seconds.
+- `Get-JiraTicket` returns `DescriptionText`, the description as plain text (`Description` is
+  still the raw Atlassian Document Format object).
+
+### Fixed
+- Issue keys and ids were put into request URLs without encoding, so a value such as
+  `SD-1/../../api/3/myself` could call another endpoint with the user's credentials.
+- `Invoke-JiraRequest` no longer re-sends a `POST` search with the same body for every page.
+
+### Deprecated
+- `$global:JiraContext`. It is still set by `Set-JiraContext` but will be removed in a future
+  version; use `Get-JiraContext`.
+
+### Changed
+- Field updates and comments share private helpers between `Update-JiraTicket` and
+  `Update-JSMRequest`.
+
 ## [0.1.1] - 2026-09-24
 
 ### Fixed

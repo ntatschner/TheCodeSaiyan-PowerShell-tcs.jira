@@ -1,5 +1,5 @@
 @{
-    ModuleVersion        = '0.1.1'
+    ModuleVersion        = '0.2.0'
     GUID                 = 'dd02af82-ea25-4294-b76e-e072e4d992e9'
     Author               = 'Nigel Tatschner'
     CompanyName          = 'TheCodeSaiyan'
@@ -12,13 +12,22 @@
         @{ ModuleName = 'tcs.core'; ModuleVersion = '0.3.0' }
     )
     FunctionsToExport    = @(
+        'Clear-JiraContext',
+        'Find-JiraIssue',
+        'Get-JiraContext',
+        'Get-JiraIssueTransition',
         'Get-JiraTicket',
         'Get-JSMRequest',
+        'Get-JSMRequestTransition',
+        'Get-JSMRequestType',
+        'Get-JSMServiceDesk',
+        'Invoke-JiraIssueTransition',
         'Invoke-JiraRequest',
         'New-JiraTicket',
         'New-JSMRequest',
         'Set-JiraContext',
         'Set-JSMRequestTransition',
+        'Test-JiraContext',
         'Update-JiraTicket',
         'Update-JSMRequest'
     )

@@ -27,6 +27,12 @@ Describe 'Set-JSMRequestTransition' {
         }
     }
 
+    It 'Rejects keys and transition ids that could change the request path' {
+        { Set-JSMRequestTransition -IssueKey 'SD-42/../x' -TransitionId '761' } | Should -Throw
+        { Set-JSMRequestTransition -IssueKey 'SD-42' -TransitionId '761/x' } | Should -Throw
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly
+    }
+
     It 'Does not call Jira with -WhatIf' {
         Set-JSMRequestTransition -IssueKey 'SD-42' -TransitionId '761' -WhatIf
         Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly

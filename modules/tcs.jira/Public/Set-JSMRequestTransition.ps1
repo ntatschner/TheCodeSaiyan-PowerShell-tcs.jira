@@ -4,8 +4,7 @@ function Set-JSMRequestTransition {
         Transitions a Jira Service Management request to a new status.
     .DESCRIPTION
         Performs a customer transition through POST /rest/servicedeskapi/request/<key>/transition.
-        Get the available transition ids from
-        Invoke-JiraRequest -Method Get -URIPath '/servicedeskapi/request/<key>/transition'.
+        Get the available transition ids with Get-JSMRequestTransition.
     .PARAMETER IssueKey
         The issue key or id of the request, for example SD-42.
     .PARAMETER TransitionId
@@ -20,11 +19,11 @@ function Set-JSMRequestTransition {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param (
         [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
+        [ValidatePattern('^([A-Za-z][A-Za-z0-9_]*-\d+|\d+)$')]
         [string]$IssueKey,
 
         [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
+        [ValidatePattern('^\d+$')]
         [string]$TransitionId
     )
 
@@ -41,8 +40,8 @@ function Set-JSMRequestTransition {
             return
         }
 
-        $body = @{ id = $TransitionId } | ConvertTo-Json
-        $result = Invoke-JiraRequest -Method Post -URIPath "/servicedeskapi/request/$IssueKey/transition" -Body $body
+        $body = @{ id = $TransitionId }
+        $result = Invoke-JiraRequest -Method Post -URIPath "/servicedeskapi/request/$([System.Uri]::EscapeDataString($IssueKey))/transition" -Body $body
         Write-Verbose "Successfully transitioned JSM request $IssueKey."
         if ($result) {
             Invoke-TelemetryCollection @TelemetryArgs -Stage End

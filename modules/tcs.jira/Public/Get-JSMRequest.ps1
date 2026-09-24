@@ -18,7 +18,7 @@ function Get-JSMRequest {
     [OutputType([pscustomobject])]
     param (
         [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
+        [ValidatePattern('^([A-Za-z][A-Za-z0-9_]*-\d+|\d+)$')]
         [string]$IssueKey
     )
 
@@ -30,7 +30,7 @@ function Get-JSMRequest {
     }
     Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
     try {
-        $response = Invoke-JiraRequest -Method Get -URIPath "/servicedeskapi/request/$IssueKey"
+        $response = Invoke-JiraRequest -Method Get -URIPath "/servicedeskapi/request/$([System.Uri]::EscapeDataString($IssueKey))"
         if ($response) {
             Write-Verbose "Successfully retrieved JSM request: $IssueKey."
             Invoke-TelemetryCollection @TelemetryArgs -Stage End

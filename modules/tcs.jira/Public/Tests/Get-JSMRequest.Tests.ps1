@@ -21,6 +21,21 @@ Describe 'Get-JSMRequest' {
         }
     }
 
+    It 'Rejects issue keys that could change the request path' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { }
+        { Get-JSMRequest -IssueKey 'SD-1/../../api/3/myself?x=' } | Should -Throw
+        { Get-JSMRequest -IssueKey 'SD-1#x' } | Should -Throw
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly
+    }
+
+    It 'Accepts a numeric issue id' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ issueKey = 'SD-42' } }
+        $null = Get-JSMRequest -IssueKey '10042'
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $Uri -eq 'https://contoso.atlassian.net/rest/servicedeskapi/request/10042'
+        }
+    }
+
     It 'Warns when the response is empty' {
         Mock -ModuleName tcs.jira Invoke-RestMethod { }
         $result = Get-JSMRequest -IssueKey 'SD-42' -WarningVariable warnings -WarningAction SilentlyContinue

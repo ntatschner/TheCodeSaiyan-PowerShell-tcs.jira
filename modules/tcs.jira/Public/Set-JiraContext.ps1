@@ -12,6 +12,9 @@ function Set-JiraContext {
 
         For compatibility with older scripts the (secret-free) context object is also available as
         $global:JiraContext. It no longer contains an AuthorizationHeader property.
+        $global:JiraContext is deprecated and will be removed in a future version: use
+        Get-JiraContext to read the context, Test-JiraContext to check it and Clear-JiraContext
+        to remove it.
     .PARAMETER JiraUrl
         The base URL of the Jira site, for example https://contoso.atlassian.net. Must use HTTPS.
         A trailing /rest/api/<version> path is removed.

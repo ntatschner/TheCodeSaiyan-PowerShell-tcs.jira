@@ -41,6 +41,17 @@ Describe 'New-JSMRequest' {
         }
     }
 
+    It 'Merges -RequestFieldValues, with -Summary and -Description taking precedence' {
+        $null = New-JSMRequest -ServiceDeskId '1' -RequestTypeId '10' -Summary 'New laptop' -Description 'Please' -RequestFieldValues @{ customfield_10010 = 'Model X'; summary = 'ignored'; priority = @{ name = 'High' } }
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+            $sent = if ($Body) { $Body | ConvertFrom-Json } else { [pscustomobject]@{} }
+            $sent.requestFieldValues.customfield_10010 -eq 'Model X' -and
+            $sent.requestFieldValues.priority.name -eq 'High' -and
+            $sent.requestFieldValues.summary -eq 'New laptop' -and
+            $sent.requestFieldValues.description -eq 'Please'
+        }
+    }
+
     It 'Does not call Jira with -WhatIf' {
         New-JSMRequest -ServiceDeskId '1' -RequestTypeId '10' -Summary 'S' -WhatIf
         Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 0 -Exactly

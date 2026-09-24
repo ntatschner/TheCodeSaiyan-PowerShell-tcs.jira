@@ -10,9 +10,9 @@ BeforeAll {
     $Base = 'https://contoso.atlassian.net'
 
     function New-HttpError {
-        param ([int]$StatusCode, [string]$Details)
+        param ([int]$StatusCode, [string]$Details, [hashtable]$Headers = @{})
         $exception = New-Object -TypeName System.Exception -ArgumentList "Response status code does not indicate success: $StatusCode"
-        $exception | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{ StatusCode = $StatusCode })
+        $exception | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{ StatusCode = $StatusCode; Headers = $Headers })
         $record = New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, 'HttpError', ([System.Management.Automation.ErrorCategory]::InvalidOperation), $null
         if ($Details) {
             $record.ErrorDetails = New-Object -TypeName System.Management.Automation.ErrorDetails -ArgumentList $Details
@@ -96,6 +96,41 @@ Describe 'Invoke-JiraRequest' {
             }
         }
 
+        It 'Encodes -Id as one path segment so it cannot change the path or add a query' {
+            $null = Invoke-JiraRequest -Method Get -Resource issue -Id 'A-1?expand=changelog#x'
+            $null = Invoke-JiraRequest -Method Get -Resource issue -Id 'A-1/../../myself'
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+                $Uri.OriginalString -eq "$Base/rest/api/3/issue/A-1%3Fexpand%3Dchangelog%23x"
+            }
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+                $Uri.OriginalString -eq "$Base/rest/api/3/issue/A-1%2F..%2F..%2Fmyself"
+            }
+        }
+
+        It 'Converts a hashtable body to JSON and sends a string body unchanged' {
+            $null = Invoke-JiraRequest -Method Post -Resource issue -Body @{ fields = @{ summary = 'S'; labels = @('a') } }
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+                $Body -is [string] -and ($Body | ConvertFrom-Json).fields.summary -eq 'S' -and
+                (@(($Body | ConvertFrom-Json).fields.labels) -join ',') -eq 'a'
+            }
+        }
+
+        It 'Converts deeply nested bodies without truncation' {
+            $deep = @{ l1 = @{ l2 = @{ l3 = @{ l4 = @{ l5 = @{ l6 = @{ l7 = @{ l8 = @{ l9 = @{ l10 = @{ l11 = 'deep' } } } } } } } } } } }
+            $null = Invoke-JiraRequest -Method Put -Resource issue -Id 'PROJ-1' -Body $deep
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+                ($Body | ConvertFrom-Json).l1.l2.l3.l4.l5.l6.l7.l8.l9.l10.l11 -eq 'deep'
+            }
+        }
+
+        It 'Sends -Resource search to the enhanced JQL search endpoint' {
+            $null = Invoke-JiraRequest -Method Get -Resource search -Query @{ jql = 'project = P' }
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+                $Uri.OriginalString -like "$Base/rest/api/3/search/jql?*"
+            }
+            { Invoke-JiraRequest -Method Get -Resource search -Id 'x' } | Should -Throw '*-Id*'
+        }
+
         It 'URL-encodes query parameters and does not change the caller hashtable' {
             $query = @{ 'a b' = 'c&d=e' }
             $null = Invoke-JiraRequest -Method Get -URIPath '/project/search' -Query $query
@@ -158,20 +193,92 @@ Describe 'Invoke-JiraRequest' {
             $warnings | Should -Not -BeNullOrEmpty
         }
 
-        It 'Follows nextPage links on the same site' {
+        It 'Unwraps multi-value pages and follows nextPage links on the same site' {
             Mock -ModuleName tcs.jira Invoke-RestMethod {
                 if ($Uri -match 'startAt=50') {
-                    [pscustomobject]@{ values = @(2); isLast = $true }
+                    [pscustomobject]@{ startAt = 50; maxResults = 50; isLast = $true; values = @([pscustomobject]@{ key = 'C' }) }
                 }
                 else {
-                    [pscustomobject]@{ values = @(1); nextPage = 'https://contoso.atlassian.net/rest/api/3/project/search?startAt=50' }
+                    [pscustomobject]@{ startAt = 0; maxResults = 50; isLast = $false; values = @([pscustomobject]@{ key = 'A' }, [pscustomobject]@{ key = 'B' }); nextPage = 'https://contoso.atlassian.net/rest/api/3/project/search?startAt=50' }
                 }
             }
             $result = @(Invoke-JiraRequest -Method Get -URIPath '/project/search')
-            $result.Count | Should -Be 2
+            $result.Count | Should -Be 3
+            ($result | ForEach-Object key) -join ',' | Should -Be 'A,B,C'
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 2 -Exactly
             Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
                 $Uri -eq 'https://contoso.atlassian.net/rest/api/3/project/search?startAt=50'
             }
+        }
+
+        It 'Does not follow nextPage when the page says it is the last one' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ isLast = $true; values = @(1, 2); nextPage = 'https://contoso.atlassian.net/rest/api/3/project/search?startAt=2' } }
+            $result = @(Invoke-JiraRequest -Method Get -URIPath '/project/search')
+            $result.Count | Should -Be 2
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
+        }
+
+        It 'Unwraps Service Management pages and follows _links.next until isLastPage' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod {
+                if ($Uri -match 'start=2') {
+                    [pscustomobject]@{ size = 1; start = 2; limit = 2; isLastPage = $true; values = @([pscustomobject]@{ id = '3' }); _links = [pscustomobject]@{ base = 'https://contoso.atlassian.net/rest/servicedeskapi' } }
+                }
+                else {
+                    [pscustomobject]@{ size = 2; start = 0; limit = 2; isLastPage = $false; values = @([pscustomobject]@{ id = '1' }, [pscustomobject]@{ id = '2' }); _links = [pscustomobject]@{ next = 'https://contoso.atlassian.net/rest/servicedeskapi/servicedesk?start=2&limit=2' } }
+                }
+            }
+            $result = @(Invoke-JiraRequest -Method Get -URIPath '/servicedeskapi/servicedesk')
+            ($result | ForEach-Object id) -join ',' | Should -Be '1,2,3'
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 2 -Exactly
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq 'https://contoso.atlassian.net/rest/servicedeskapi/servicedesk?start=2&limit=2'
+            }
+        }
+
+        It 'Stops Service Management paging at -MaxQueryPages and warns' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ isLastPage = $false; values = @('a'); _links = [pscustomobject]@{ next = 'https://contoso.atlassian.net/rest/servicedeskapi/request?start=1' } } }
+            $result = @(Invoke-JiraRequest -Method Get -URIPath '/servicedeskapi/request' -MaxQueryPages 2 -WarningVariable warnings -WarningAction SilentlyContinue)
+            $result.Count | Should -Be 2
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 2 -Exactly
+            $warnings | Should -Not -BeNullOrEmpty
+        }
+
+        It 'Does not follow a Service Management link to another host' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ isLastPage = $false; values = @('a'); _links = [pscustomobject]@{ next = 'https://evil.example.com/rest/servicedeskapi/request?start=1' } } }
+            $null = Invoke-JiraRequest -Method Get -URIPath '/servicedeskapi/request' -WarningAction SilentlyContinue
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
+        }
+
+        It 'Returns responses with an issues property unchanged outside search (bulk create errors)' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod {
+                [pscustomobject]@{
+                    issues = @([pscustomobject]@{ id = '1'; key = 'P-1' })
+                    errors = @([pscustomobject]@{ status = 400; failedElementNumber = 1; elementErrors = [pscustomobject]@{ errors = [pscustomobject]@{ summary = 'required' } } })
+                }
+            }
+            $result = @(Invoke-JiraRequest -Method Post -URIPath '/issue/bulk' -Body @{ issueUpdates = @() })
+            $result.Count | Should -Be 1
+            @($result[0].issues).Count | Should -Be 1
+            @($result[0].errors).Count | Should -Be 1
+            $result[0].errors[0].failedElementNumber | Should -Be 1
+        }
+
+        It 'Returns the untouched search response with -Raw and makes one request' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ issues = @([pscustomobject]@{ key = 'P-1' }); nextPageToken = 'more'; isLast = $false; names = [pscustomobject]@{ summary = 'Summary' } } }
+            $result = @(Invoke-JiraRequest -Method Get -JQL 'project = P' -Raw)
+            $result.Count | Should -Be 1
+            $result[0].nextPageToken | Should -Be 'more'
+            $result[0].names.summary | Should -Be 'Summary'
+            $result[0].issues[0].key | Should -Be 'P-1'
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
+        }
+
+        It 'Returns an untouched page with -Raw' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ isLast = $false; values = @(1, 2); nextPage = 'https://contoso.atlassian.net/rest/api/3/project/search?startAt=2' } }
+            $result = @(Invoke-JiraRequest -Method Get -URIPath '/project/search' -Raw)
+            $result.Count | Should -Be 1
+            @($result[0].values).Count | Should -Be 2
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
         }
 
         It 'Does not send credentials to a nextPage link on another host' {
@@ -208,6 +315,58 @@ Describe 'Invoke-JiraRequest' {
             $result.key | Should -Be 'PROJ-1'
             Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 3 -Exactly
             Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 2 -Exactly
+        }
+
+        It 'Does not retry a POST on HTTP 503, so an issue is never created twice' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 503) }
+            { Invoke-JiraRequest -Method Post -Resource issue -Body @{ fields = @{} } -WarningAction SilentlyContinue } | Should -Throw '*HTTP status code: 503*'
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
+            Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 0 -Exactly
+        }
+
+        It 'Does not retry a POST on HTTP 500 or a PATCH on HTTP 502' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 500) }
+            { Invoke-JiraRequest -Method Post -URIPath '/issue/PROJ-1/comment' -Body '{}' } | Should -Throw '*HTTP status code: 500*'
+            Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 502) }
+            { Invoke-JiraRequest -Method Patch -URIPath '/thing' -Body '{}' } | Should -Throw '*HTTP status code: 502*'
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 2 -Exactly
+        }
+
+        It 'Retries a POST on HTTP 429' {
+            $script:calls = 0
+            Mock -ModuleName tcs.jira Invoke-RestMethod {
+                $script:calls++
+                if ($script:calls -eq 1) { throw (New-HttpError -StatusCode 429) }
+                [pscustomobject]@{ key = 'PROJ-2' }
+            }
+            $result = Invoke-JiraRequest -Method Post -Resource issue -Body '{}' -WarningAction SilentlyContinue
+            $result.key | Should -Be 'PROJ-2'
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 2 -Exactly
+        }
+
+        It 'Retries PUT and DELETE on HTTP 5xx' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 500) }
+            { Invoke-JiraRequest -Method Put -Resource issue -Id 'PROJ-1' -Body '{}' -WarningAction SilentlyContinue } | Should -Throw
+            { Invoke-JiraRequest -Method Delete -Resource issue -Id 'PROJ-1' -WarningAction SilentlyContinue } | Should -Throw
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 6 -Exactly
+        }
+
+        It 'Waits for the Retry-After header' {
+            $script:calls = 0
+            Mock -ModuleName tcs.jira Invoke-RestMethod {
+                $script:calls++
+                if ($script:calls -eq 1) { throw (New-HttpError -StatusCode 429 -Headers @{ 'Retry-After' = '7' }) }
+                [pscustomobject]@{ key = 'PROJ-1' }
+            }
+            $null = Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' -WarningAction SilentlyContinue
+            Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Seconds -eq 7 }
+        }
+
+        It 'Backs off 2 then 4 seconds without Retry-After' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 503) }
+            { Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' -WarningAction SilentlyContinue } | Should -Throw
+            Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Seconds -eq 2 }
+            Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Seconds -eq 4 }
         }
 
         It 'Gives up after three attempts' {

@@ -28,7 +28,6 @@ Invoke-ScriptAnalyzer -Path ./modules/tcs.jira -Recurse -Settings ./PSScriptAnal
 | --- | --- |
 | `modules/tcs.jira/Public/` | Exported functions, one per file, named after the function |
 | `modules/tcs.jira/Private/` | Internal helpers (not exported) |
-| `modules/tcs.jira/Classes/` | PowerShell classes, loaded before the functions |
 | `modules/tcs.jira/Public/Tests/`, `Private/Tests/` | Pester tests, `<Function>.Tests.ps1` |
 | `tests/` | Module-wide tests (manifest, exports, help, PSScriptAnalyzer) |
 

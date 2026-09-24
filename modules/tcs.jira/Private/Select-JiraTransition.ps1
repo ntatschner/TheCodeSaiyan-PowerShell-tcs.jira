@@ -1,10 +1,16 @@
 function Select-JiraTransition {
     <#
     .SYNOPSIS
-        Picks a transition by name from a list of Jira transitions.
+        Picks the transition that leads to a status from a list of Jira transitions.
     .DESCRIPTION
-        Returns the first transition whose name equals -Name (case-insensitive). When there is no
-        exact match, returns the first transition whose name contains -Name as a whole word.
+        Returns the first transition whose target status (to.name) equals -Name. When no target
+        status matches, returns the first transition whose own name equals -Name. Both comparisons
+        are exact and case-insensitive; there is no partial or whole-word matching, so 'Done' never
+        selects 'Not Done' and 'Resolved' selects 'Resolve Issue' only through its target status.
+        Returns nothing when no transition matches.
+
+        Jira Service Management customer transitions have no target status, so they are matched by
+        name only.
     #>
     [CmdletBinding()]
     [OutputType([object])]
@@ -18,10 +24,9 @@ function Select-JiraTransition {
     )
 
     $candidates = @($Transition | Where-Object { $null -ne $_ })
-    $selected = @($candidates | Where-Object { [string]$_.name -eq $Name })
+    $selected = @($candidates | Where-Object { $_.PSObject.Properties['to'] -and $null -ne $_.to -and [string]$_.to.name -eq $Name })
     if ($selected.Count -eq 0) {
-        $pattern = '\b{0}\b' -f [regex]::Escape($Name)
-        $selected = @($candidates | Where-Object { [string]$_.name -match $pattern })
+        $selected = @($candidates | Where-Object { [string]$_.name -eq $Name })
     }
     if ($selected.Count -gt 0) {
         return $selected[0]

@@ -41,6 +41,12 @@ try {
     New-JiraTicket -ProjectKey 'SMOKE' -IssueType 'Task' -Summary 'Smoke test' -WhatIf
     Update-JiraTicket -IssueKey 'SMOKE-1' -Comment 'Smoke test' -WhatIf
     Set-JSMRequestTransition -IssueKey 'SMOKE-1' -TransitionId '1' -WhatIf
+    Invoke-JiraIssueTransition -IssueKey 'SMOKE-1' -Status 'Done' -WhatIf
+
+    # The context can be read without secrets and cleared
+    if ((Get-JiraContext | Format-List -Property * | Out-String) -match [regex]::Escape($token)) { throw 'Get-JiraContext exposes the API token.' }
+    Clear-JiraContext
+    if (Get-JiraContext) { throw 'Clear-JiraContext did not clear the context.' }
 
     Write-Output 'All smoke tests passed successfully.'
 }
