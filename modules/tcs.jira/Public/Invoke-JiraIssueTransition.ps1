@@ -52,11 +52,16 @@ function Invoke-JiraIssueTransition {
 
     begin {
         $telemetry = Start-TcsTelemetry
+        $lastError = $null
     }
 
     process {
+        # finally also completes the run when a downstream command stops the pipeline or an
+        # error bypasses catch; the end block does not run then
+        $completed = $false
         try {
             if (-not $PSCmdlet.ShouldProcess($IssueKey, "Transition to $Status")) {
+                $completed = $true
                 return
             }
             $transition = Invoke-JiraTransitionRequest -IssueKey $IssueKey -Status $Status
@@ -66,14 +71,20 @@ function Invoke-JiraIssueTransition {
             if ($PassThru) {
                 $transition
             }
+            $completed = $true
         }
         catch {
-            Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
+            $lastError = $_
             throw
+        }
+        finally {
+            if (-not $completed) {
+                Complete-TcsTelemetry -Token $telemetry -ErrorRecord $lastError
+            }
         }
     }
 
     end {
-        Complete-TcsTelemetry -Token $telemetry
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $lastError
     }
 }

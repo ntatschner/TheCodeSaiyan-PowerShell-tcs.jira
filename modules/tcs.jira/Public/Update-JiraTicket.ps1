@@ -78,9 +78,13 @@ function Update-JiraTicket {
 
     begin {
         $telemetry = Start-TcsTelemetry
+        $lastError = $null
     }
 
     process {
+        # finally also completes the run when a downstream command stops the pipeline or an
+        # error bypasses catch; the end block does not run then
+        $completed = $false
         try {
             if (-not $Summary -and -not $Comment -and -not $OptionalFields -and -not $MarkDone -and -not $MarkResolved) {
                 throw 'You must provide at least one of -Summary, -Comment, -OptionalFields, -MarkDone or -MarkResolved to update a ticket.'
@@ -111,14 +115,20 @@ function Update-JiraTicket {
             }
 
             Write-Verbose "Finished Update-JiraTicket for '$IssueKey'"
+            $completed = $true
         }
         catch {
-            Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
+            $lastError = $_
             throw
+        }
+        finally {
+            if (-not $completed) {
+                Complete-TcsTelemetry -Token $telemetry -ErrorRecord $lastError
+            }
         }
     }
 
     end {
-        Complete-TcsTelemetry -Token $telemetry
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $lastError
     }
 }

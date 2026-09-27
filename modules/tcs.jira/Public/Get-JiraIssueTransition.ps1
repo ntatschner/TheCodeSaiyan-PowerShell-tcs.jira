@@ -27,9 +27,13 @@ function Get-JiraIssueTransition {
 
     begin {
         $telemetry = Start-TcsTelemetry
+        $lastError = $null
     }
 
     process {
+        # finally also completes the run when a downstream command stops the pipeline or an
+        # error bypasses catch; the end block does not run then
+        $completed = $false
         try {
             $response = Invoke-JiraRequest -Method Get -URIPath "/issue/$([System.Uri]::EscapeDataString($IssueKey))/transitions"
             foreach ($transition in @($response.transitions)) {
@@ -37,14 +41,20 @@ function Get-JiraIssueTransition {
                     $transition
                 }
             }
+            $completed = $true
         }
         catch {
-            Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
+            $lastError = $_
             throw
+        }
+        finally {
+            if (-not $completed) {
+                Complete-TcsTelemetry -Token $telemetry -ErrorRecord $lastError
+            }
         }
     }
 
     end {
-        Complete-TcsTelemetry -Token $telemetry
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $lastError
     }
 }

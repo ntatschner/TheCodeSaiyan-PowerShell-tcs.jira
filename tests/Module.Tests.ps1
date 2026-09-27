@@ -102,13 +102,23 @@ Describe 'Telemetry for <Name>' -ForEach $ExportedFunctions {
     }
 
     It 'Completes the run as failed when the command throws' {
-        $definition | Should -Match 'catch\s*\{\s*Complete-TcsTelemetry\s+-Token\s+\$telemetry\s+-ErrorRecord\s+\$_\s+throw'
+        if ($isPipeline) {
+            $definition | Should -Match 'catch\s*\{\s*\$lastError\s*=\s*\$_\s+throw'
+        }
+        else {
+            $definition | Should -Match 'catch\s*\{\s*Complete-TcsTelemetry\s+-Token\s+\$telemetry\s+-ErrorRecord\s+\$_\s+throw'
+        }
     }
 
-    It 'Completes the run when the command ends (end block for pipeline functions, finally otherwise)' {
+    It 'Completes the run when the command ends (end block and process finally for pipeline functions, finally otherwise)' {
         if ($isPipeline) {
-            $definition | Should -Match 'begin\s*\{\s*\$telemetry\s*=\s*Start-TcsTelemetry'
-            $definition | Should -Match 'end\s*\{\s*Complete-TcsTelemetry\s+-Token\s+\$telemetry\s*\}'
+            $definition | Should -Match 'begin\s*\{\s*\$telemetry\s*=\s*Start-TcsTelemetry\s+\$lastError\s*=\s*\$null'
+            $definition | Should -Match 'finally\s*\{\s*if\s*\(-not\s+\$completed\)\s*\{\s*Complete-TcsTelemetry\s+-Token\s+\$telemetry\s+-ErrorRecord\s+\$lastError\s*\}'
+            $definition | Should -Match 'end\s*\{\s*Complete-TcsTelemetry\s+-Token\s+\$telemetry\s+-ErrorRecord\s+\$lastError\s*\}'
+            # Every successful path, including early returns, marks the item as completed
+            $returns = ([regex]::Matches($definition, '(?m)^\s*return\s*$')).Count
+            $marks = ([regex]::Matches($definition, '\$completed\s*=\s*\$true')).Count
+            $marks | Should -Be ($returns + 1)
         }
         else {
             $definition | Should -Match 'finally\s*\{\s*Complete-TcsTelemetry\s+-Token\s+\$telemetry\s*\}'
