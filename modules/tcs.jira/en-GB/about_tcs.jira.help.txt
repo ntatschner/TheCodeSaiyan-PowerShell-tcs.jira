@@ -6,7 +6,7 @@ SHORT DESCRIPTION
 
 LONG DESCRIPTION
     tcs.jira is part of the TheCodeSaiyan PowerShell suite and requires
-    tcs.core 0.3.0 or later. It connects to one Jira Cloud site per session,
+    tcs.core 0.4.0 or later. It connects to one Jira Cloud site per session,
     sends requests to the Jira platform API (/rest/api/3) and the Jira Service
     Management API (/rest/servicedeskapi), and gets, creates and updates
     issues and service requests.
@@ -102,9 +102,11 @@ ENVIRONMENT VARIABLES
 
 TELEMETRY
     Each exported command reports one anonymous usage event through tcs.core
-    Invoke-TelemetryCollection (command name, duration, success, exception
-    type, PowerShell and OS version and a random installation ID). No user,
-    machine, path or error text is sent, and no Jira data or credentials.
+    Start-TcsTelemetry and Complete-TcsTelemetry (command name, duration,
+    success, exception type, PowerShell and OS version and a random
+    installation ID); a pipeline is one event, and a command called by another
+    tcs.jira command is not reported separately. No user, machine, path or
+    error text is sent, and no Jira data or credentials.
     Nothing is sent until a TelemetryUri is configured.
 
     To opt out, set $env:TCS_TELEMETRY_OPTOUT = '1' (all tcs modules) or run:
