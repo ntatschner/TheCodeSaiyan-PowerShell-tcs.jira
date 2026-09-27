@@ -76,14 +76,11 @@ function Update-JiraTicket {
         [switch]$MarkResolved
     )
 
+    begin {
+        $telemetry = Start-TcsTelemetry
+    }
+
     process {
-        $TelemetryArgs = @{
-            ModuleName    = $MyInvocation.MyCommand.Module.Name
-            ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-            CommandName   = $MyInvocation.MyCommand.Name
-            ExecutionID   = [guid]::NewGuid().ToString()
-        }
-        Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
         try {
             if (-not $Summary -and -not $Comment -and -not $OptionalFields -and -not $MarkDone -and -not $MarkResolved) {
                 throw 'You must provide at least one of -Summary, -Comment, -OptionalFields, -MarkDone or -MarkResolved to update a ticket.'
@@ -114,11 +111,14 @@ function Update-JiraTicket {
             }
 
             Write-Verbose "Finished Update-JiraTicket for '$IssueKey'"
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
         }
         catch {
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+            Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
             throw
         }
+    }
+
+    end {
+        Complete-TcsTelemetry -Token $telemetry
     }
 }

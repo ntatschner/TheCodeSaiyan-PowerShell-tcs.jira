@@ -42,13 +42,7 @@ function Find-JiraIssue {
         [int]$MaxResults = 100
     )
 
-    $TelemetryArgs = @{
-        ModuleName    = $MyInvocation.MyCommand.Module.Name
-        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-        CommandName   = $MyInvocation.MyCommand.Name
-        ExecutionID   = [guid]::NewGuid().ToString()
-    }
-    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    $telemetry = Start-TcsTelemetry
     try {
         $query = @{
             maxResults = [math]::Min($MaxResults, 100)
@@ -70,10 +64,12 @@ function Find-JiraIssue {
             }
         }
         Write-Verbose "Returned $returned issue(s)."
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End
     }
     catch {
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
         throw
+    }
+    finally {
+        Complete-TcsTelemetry -Token $telemetry
     }
 }

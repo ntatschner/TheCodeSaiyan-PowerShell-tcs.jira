@@ -25,21 +25,21 @@ function Get-JSMRequestTransition {
         [string]$IssueKey
     )
 
+    begin {
+        $telemetry = Start-TcsTelemetry
+    }
+
     process {
-        $TelemetryArgs = @{
-            ModuleName    = $MyInvocation.MyCommand.Module.Name
-            ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-            CommandName   = $MyInvocation.MyCommand.Name
-            ExecutionID   = [guid]::NewGuid().ToString()
-        }
-        Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
         try {
             Invoke-JiraRequest -Method Get -URIPath "/servicedeskapi/request/$([System.Uri]::EscapeDataString($IssueKey))/transition"
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
         }
         catch {
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+            Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
             throw
         }
+    }
+
+    end {
+        Complete-TcsTelemetry -Token $telemetry
     }
 }

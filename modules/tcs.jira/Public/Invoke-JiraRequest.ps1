@@ -102,13 +102,7 @@ function Invoke-JiraRequest {
         [switch]$Raw
     )
 
-    $TelemetryArgs = @{
-        ModuleName    = $MyInvocation.MyCommand.Module.Name
-        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-        CommandName   = $MyInvocation.MyCommand.Name
-        ExecutionID   = [guid]::NewGuid().ToString()
-    }
-    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    $telemetry = Start-TcsTelemetry
     try {
         if (-not $script:JiraContext -or -not $script:JiraCredential) {
             throw 'Jira context is not set. Run Set-JiraContext first.'
@@ -351,7 +345,6 @@ function Invoke-JiraRequest {
         } while ($morePages -and $pageCount -lt $MaxQueryPages)
 
         if ($Raw) {
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
             return
         }
         if ($morePages) {
@@ -360,10 +353,12 @@ function Invoke-JiraRequest {
 
         Write-Verbose "Response received. Total result objects collected: $($allResults.Count)"
         $allResults
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End
     }
     catch {
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
         throw
+    }
+    finally {
+        Complete-TcsTelemetry -Token $telemetry
     }
 }

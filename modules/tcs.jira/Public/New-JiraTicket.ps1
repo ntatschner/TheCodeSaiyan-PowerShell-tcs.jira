@@ -49,13 +49,7 @@ function New-JiraTicket {
         [hashtable]$Fields
     )
 
-    $TelemetryArgs = @{
-        ModuleName    = $MyInvocation.MyCommand.Module.Name
-        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-        CommandName   = $MyInvocation.MyCommand.Name
-        ExecutionID   = [guid]::NewGuid().ToString()
-    }
-    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    $telemetry = Start-TcsTelemetry
     try {
         $body = @{
             fields = @{
@@ -76,7 +70,6 @@ function New-JiraTicket {
         }
 
         if (-not $PSCmdlet.ShouldProcess("project $ProjectKey", "Create $IssueType '$Summary'")) {
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
             return
         }
 
@@ -84,13 +77,14 @@ function New-JiraTicket {
         $ticket = Invoke-JiraRequest -Method Post -Resource 'issue' -Body $body
         if ($ticket) {
             Write-Verbose "Successfully created Jira ticket: $($ticket.key)"
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
             return $ticket
         }
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End
     }
     catch {
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
         throw
+    }
+    finally {
+        Complete-TcsTelemetry -Token $telemetry
     }
 }

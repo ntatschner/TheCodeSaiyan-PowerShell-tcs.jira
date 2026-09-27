@@ -42,21 +42,17 @@ function Get-JiraTicket {
         [string]$IssueKey
     )
 
+    begin {
+        $telemetry = Start-TcsTelemetry
+    }
+
     process {
-        $TelemetryArgs = @{
-            ModuleName    = $MyInvocation.MyCommand.Module.Name
-            ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-            CommandName   = $MyInvocation.MyCommand.Name
-            ExecutionID   = [guid]::NewGuid().ToString()
-        }
-        Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
         try {
             Write-Verbose "Getting ticket details for issue key: $IssueKey"
             $ticket = Invoke-JiraRequest -Method Get -Resource 'issue' -Id $IssueKey
 
             if (-not $ticket) {
                 Write-Warning "Failed to retrieve Jira ticket: $IssueKey. The response from the server was empty or invalid."
-                Invoke-TelemetryCollection @TelemetryArgs -Stage End
                 return
             }
 
@@ -91,11 +87,14 @@ function Get-JiraTicket {
                 DescriptionText = ConvertFrom-JiraDocument -Document $ticket.fields.description
                 Comments        = $commentList.ToArray()
             }
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
         }
         catch {
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+            Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
             throw
         }
+    }
+
+    end {
+        Complete-TcsTelemetry -Token $telemetry
     }
 }

@@ -42,9 +42,9 @@ Describe 'tcs.jira module' {
         }
     }
 
-    It 'Requires tcs.core 0.3.0 or later' {
+    It 'Requires tcs.core 0.4.0 or later' {
         $required = (Import-PowerShellDataFile -Path $ManifestPath).RequiredModules | Where-Object { $_.ModuleName -eq 'tcs.core' }
-        [version]$required.ModuleVersion | Should -BeGreaterOrEqual ([version]'0.3.0')
+        [version]$required.ModuleVersion | Should -BeGreaterOrEqual ([version]'0.4.0')
     }
 
     It 'Does not create files in the module folder when imported' {
@@ -88,22 +88,35 @@ Describe 'Help for <Name>' -ForEach $PublicFunctions {
     }
 }
 
-# Coverage guard: every exported command reports telemetry through tcs.core (Start and End stages)
+# Coverage guard: every exported command reports telemetry through tcs.core's
+# Start-TcsTelemetry / Complete-TcsTelemetry (one run per call, or per pipeline)
 Describe 'Telemetry for <Name>' -ForEach $ExportedFunctions {
     BeforeAll {
-        $definition = (Get-Command -Name $Name -Module tcs.jira).Definition
+        $command = Get-Command -Name $Name -Module tcs.jira
+        $definition = $command.Definition
+        $isPipeline = $null -ne $command.ScriptBlock.Ast.Body.ProcessBlock
     }
 
-    It 'Sends a Start event' {
-        $definition | Should -Match 'Invoke-TelemetryCollection\b[^\r\n]*-Stage\s+Start'
+    It 'Starts a telemetry run' {
+        $definition | Should -Match '\$telemetry\s*=\s*Start-TcsTelemetry\b'
     }
 
-    It 'Sends an End event' {
-        $definition | Should -Match 'Invoke-TelemetryCollection\b[^\r\n]*-Stage\s+End'
+    It 'Completes the run as failed when the command throws' {
+        $definition | Should -Match 'catch\s*\{\s*Complete-TcsTelemetry\s+-Token\s+\$telemetry\s+-ErrorRecord\s+\$_\s+throw'
     }
 
-    It 'Sends a failed End event' {
-        $definition | Should -Match 'Invoke-TelemetryCollection\b[^\r\n]*-Stage\s+End\s+-Failed\s+\$true'
+    It 'Completes the run when the command ends (end block for pipeline functions, finally otherwise)' {
+        if ($isPipeline) {
+            $definition | Should -Match 'begin\s*\{\s*\$telemetry\s*=\s*Start-TcsTelemetry'
+            $definition | Should -Match 'end\s*\{\s*Complete-TcsTelemetry\s+-Token\s+\$telemetry\s*\}'
+        }
+        else {
+            $definition | Should -Match 'finally\s*\{\s*Complete-TcsTelemetry\s+-Token\s+\$telemetry\s*\}'
+        }
+    }
+
+    It 'Does not call Invoke-TelemetryCollection directly' {
+        $definition | Should -Not -Match 'Invoke-TelemetryCollection'
     }
 }
 

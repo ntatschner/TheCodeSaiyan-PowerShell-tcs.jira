@@ -28,23 +28,19 @@ function Get-JSMServiceDesk {
         [int]$MaxQueryPages = 10
     )
 
-    $TelemetryArgs = @{
-        ModuleName    = $MyInvocation.MyCommand.Module.Name
-        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-        CommandName   = $MyInvocation.MyCommand.Name
-        ExecutionID   = [guid]::NewGuid().ToString()
-    }
-    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    $telemetry = Start-TcsTelemetry
     try {
         $path = '/servicedeskapi/servicedesk'
         if ($ServiceDeskId) {
             $path += '/' + [System.Uri]::EscapeDataString($ServiceDeskId)
         }
         Invoke-JiraRequest -Method Get -URIPath $path -MaxQueryPages $MaxQueryPages
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End
     }
     catch {
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
         throw
+    }
+    finally {
+        Complete-TcsTelemetry -Token $telemetry
     }
 }
