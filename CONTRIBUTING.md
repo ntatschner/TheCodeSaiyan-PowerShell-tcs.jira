@@ -1,17 +1,17 @@
 # Contributing to tcs.jira
 
 tcs.jira is part of the tcs PowerShell suite and depends on
-[tcs.core](https://github.com/ntatschner/TheCodeSaiyan-PowerShell-tcs.core) 0.4.0 or later.
+[tcs.core](https://github.com/ntatschner/TheCodeSaiyan-PowerShell-tcs.core) 0.4.1 or later.
 
 ## Getting started
 
 Requirements: PowerShell 7.2+ for development, Pester 5.7.1, PSScriptAnalyzer 1.23.0 and
-tcs.core 0.4.0+ on `PSModulePath`.
+tcs.core 0.4.1+ on `PSModulePath`.
 
 ```powershell
 Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -SkipPublisherCheck
 Install-Module PSScriptAnalyzer -RequiredVersion 1.23.0 -Scope CurrentUser
-Install-Module tcs.core -MinimumVersion 0.4.0 -Scope CurrentUser
+Install-Module tcs.core -MinimumVersion 0.4.1 -Scope CurrentUser
 
 # Tests (offline: every REST call is mocked)
 Import-Module Pester -RequiredVersion 5.7.1

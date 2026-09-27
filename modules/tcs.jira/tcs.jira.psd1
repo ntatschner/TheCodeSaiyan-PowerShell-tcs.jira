@@ -9,7 +9,7 @@
     PowerShellVersion    = '5.1'
     RootModule           = 'tcs.jira.psm1'
     RequiredModules      = @(
-        @{ ModuleName = 'tcs.core'; ModuleVersion = '0.4.0' }
+        @{ ModuleName = 'tcs.core'; ModuleVersion = '0.4.1' }
     )
     FunctionsToExport    = @(
         'Clear-JiraContext',

@@ -6,7 +6,7 @@ SHORT DESCRIPTION
 
 LONG DESCRIPTION
     tcs.jira is part of the TheCodeSaiyan PowerShell suite and requires
-    tcs.core 0.4.0 or later. It connects to one Jira Cloud site per session,
+    tcs.core 0.4.1 or later. It connects to one Jira Cloud site per session,
     sends requests to the Jira platform API (/rest/api/3) and the Jira Service
     Management API (/rest/servicedeskapi), and gets, creates and updates
     issues and service requests.

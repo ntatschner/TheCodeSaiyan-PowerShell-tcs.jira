@@ -64,7 +64,7 @@ function New-JiraTicket {
         }
 
         if ($Fields) {
-            foreach ($key in $Fields.Keys) {
+            foreach ($key in $Fields.get_Keys()) {
                 $body.fields[[string]$key] = $Fields[$key]
             }
         }

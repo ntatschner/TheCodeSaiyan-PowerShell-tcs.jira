@@ -8,7 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2026-09-27
 
 ### Changed
-- Requires tcs.core 0.4.0 or later.
+- Requires tcs.core 0.4.1 or later (0.4.1 fixes `ConvertTo-QueryString` dropping a key named `keys`).
+- A hashtable entry named `keys` in `-Query` (for example `/project/search?keys=`), `-Fields`,
+  `-RequestFieldValues` or the optional update fields is no longer lost: PowerShell resolved
+  `.Keys` to that entry, so the loops now use `get_Keys()`.
 - Telemetry: every exported command uses tcs.core `Start-TcsTelemetry` and
   `Complete-TcsTelemetry` instead of its own copy of the `Invoke-TelemetryCollection` calls.
   Pipeline commands (`Get-JiraTicket`, `Get-JiraIssueTransition`, `Get-JSMRequestTransition`,

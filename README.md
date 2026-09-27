@@ -9,7 +9,7 @@ any endpoint with `Invoke-JiraRequest`. Part of the TheCodeSaiyan (tcs) PowerShe
 ## Requirements
 
 - Windows PowerShell 5.1 or PowerShell 7.2+ on Windows, Linux or macOS
-- [tcs.core](https://github.com/ntatschner/TheCodeSaiyan-PowerShell-tcs.core) **0.4.0 or later**
+- [tcs.core](https://github.com/ntatschner/TheCodeSaiyan-PowerShell-tcs.core) **0.4.1 or later**
   (installed automatically as a required module from the PowerShell Gallery)
 - A Jira Cloud site and an Atlassian account e-mail address with an
   [API token](https://id.atlassian.com/manage-profile/security/api-tokens).
@@ -22,7 +22,7 @@ any endpoint with `Invoke-JiraRequest`. Part of the TheCodeSaiyan (tcs) PowerShe
 # From the PowerShell Gallery
 Install-Module -Name tcs.jira -Scope CurrentUser
 
-# From source (tcs.core 0.4.0+ must already be installed)
+# From source (tcs.core 0.4.1+ must already be installed)
 git clone https://github.com/ntatschner/TheCodeSaiyan-PowerShell-tcs.jira.git
 Import-Module ./TheCodeSaiyan-PowerShell-tcs.jira/modules/tcs.jira/tcs.jira.psd1
 ```

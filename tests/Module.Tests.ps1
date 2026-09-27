@@ -42,9 +42,9 @@ Describe 'tcs.jira module' {
         }
     }
 
-    It 'Requires tcs.core 0.4.0 or later' {
+    It 'Requires tcs.core 0.4.1 or later' {
         $required = (Import-PowerShellDataFile -Path $ManifestPath).RequiredModules | Where-Object { $_.ModuleName -eq 'tcs.core' }
-        [version]$required.ModuleVersion | Should -BeGreaterOrEqual ([version]'0.4.0')
+        [version]$required.ModuleVersion | Should -BeGreaterOrEqual ([version]'0.4.1')
     }
 
     It 'Does not create files in the module folder when imported' {

@@ -189,7 +189,7 @@ function Invoke-JiraRequest {
         # --- Query parameters (copied so the caller's hashtable is not changed) ---
         $queryParameters = [ordered]@{}
         if ($Query) {
-            foreach ($key in $Query.Keys) {
+            foreach ($key in $Query.get_Keys()) {
                 $queryParameters[[string]$key] = $Query[$key]
             }
         }

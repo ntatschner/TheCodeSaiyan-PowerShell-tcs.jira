@@ -60,7 +60,7 @@ function New-JSMRequest {
         # Separate name: PowerShell variable names are case-insensitive
         $fieldValues = @{}
         if ($RequestFieldValues) {
-            foreach ($key in $RequestFieldValues.Keys) {
+            foreach ($key in $RequestFieldValues.get_Keys()) {
                 $fieldValues[[string]$key] = $RequestFieldValues[$key]
             }
         }

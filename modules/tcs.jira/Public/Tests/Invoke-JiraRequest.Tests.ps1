@@ -150,6 +150,15 @@ Describe 'Invoke-JiraRequest' {
             }
         }
 
+        It 'Sends a query parameter named keys' {
+            # A hashtable entry named 'keys' hides the .Keys property; /project/search takes ?keys=
+            $null = Invoke-JiraRequest -Method Get -URIPath '/project/search' -Query @{ keys = 'PROJ'; startAt = 0 }
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+                $pairs = @(($Uri.OriginalString -split '\?', 2)[1] -split '&' | Sort-Object)
+                ($pairs -join '&') -eq 'keys=PROJ&startAt=0'
+            }
+        }
+
         It 'Does not write the token to the verbose stream' {
             $verbose = Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' -Verbose 4>&1 | Where-Object { $_ -is [System.Management.Automation.VerboseRecord] } | Out-String
             $verbose | Should -Match 'rest/api/3/issue/PROJ-1'
