@@ -43,8 +43,9 @@ Retries: HTTP 429 is retried for every method.
 Other 5xx errors are retried only for the
 idempotent methods Get, Put and Delete, so a Post (for example creating an issue) is never
 sent twice.
-At most three attempts are made; the wait honours the Retry-After header
-(capped at 60 seconds) and is otherwise 2, then 4 seconds.
+At most three attempts are made.
+The wait is 2, then 4 seconds, or longer when
+the Retry-After header (seconds or an HTTP date) asks for it, up to 60 seconds.
 
 Errors are terminating and include the HTTP status and Jira's error details, never the
 credentials.
@@ -169,6 +170,9 @@ Accept wildcard characters: False
 ### -Query
 Query string parameters.
 Keys and values are URL-encoded.
+An array value repeats the key
+(for example expand=a&expand=b), $null values are left out and booleans are sent as
+'true' or 'false'.
 The hashtable is not modified.
 
 ```yaml

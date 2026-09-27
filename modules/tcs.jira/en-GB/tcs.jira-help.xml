@@ -1232,7 +1232,7 @@
       <maml:para>- Any other path is sent to the Jira platform API, /rest/api/3/...</maml:para>
       <maml:para></maml:para>
       <maml:para>Responses are unwrapped and paged, up to -MaxQueryPages pages: - JQL search results (/rest/api/3/search/jql) are unwrapped to their issues and pages are   followed through 'nextPageToken'. Other responses with an 'issues' property (for example   the bulk create response, which also has 'errors') are returned unchanged. - Jira platform pages ('values' with 'isLast', 'nextPage', 'startAt' or 'maxResults') are   unwrapped to their values and the 'nextPage' URL is followed. - Jira Service Management pages ('values' with 'isLastPage') are unwrapped to their values   and the '_links.next' URL is followed. Pagination links are only followed when they point to the site set by Set-JiraContext. Use -Raw to get the response exactly as Jira sends it, without unwrapping or paging.</maml:para>
-      <maml:para>Retries: HTTP 429 is retried for every method. Other 5xx errors are retried only for the idempotent methods Get, Put and Delete, so a Post (for example creating an issue) is never sent twice. At most three attempts are made; the wait honours the Retry-After header (capped at 60 seconds) and is otherwise 2, then 4 seconds.</maml:para>
+      <maml:para>Retries: HTTP 429 is retried for every method. Other 5xx errors are retried only for the idempotent methods Get, Put and Delete, so a Post (for example creating an issue) is never sent twice. At most three attempts are made. The wait is 2, then 4 seconds, or longer when the Retry-After header (seconds or an HTTP date) asks for it, up to 60 seconds.</maml:para>
       <maml:para>Errors are terminating and include the HTTP status and Jira's error details, never the credentials.</maml:para>
     </maml:description>
     <command:syntax>
@@ -1301,7 +1301,7 @@
         <command:parameter required="false" variableLength="true" globbing="false" pipelineInput="False" position="6" aliases="none">
           <maml:name>Query</maml:name>
           <maml:description>
-            <maml:para>Query string parameters. Keys and values are URL-encoded. The hashtable is not modified.</maml:para>
+            <maml:para>Query string parameters. Keys and values are URL-encoded. An array value repeats the key (for example expand=a&amp;expand=b), $null values are left out and booleans are sent as 'true' or 'false'. The hashtable is not modified.</maml:para>
           </maml:description>
           <command:parameterValue required="true" variableLength="false">Hashtable</command:parameterValue>
           <dev:type>
@@ -1423,7 +1423,7 @@
       <command:parameter required="false" variableLength="true" globbing="false" pipelineInput="False" position="6" aliases="none">
         <maml:name>Query</maml:name>
         <maml:description>
-          <maml:para>Query string parameters. Keys and values are URL-encoded. The hashtable is not modified.</maml:para>
+          <maml:para>Query string parameters. Keys and values are URL-encoded. An array value repeats the key (for example expand=a&amp;expand=b), $null values are left out and booleans are sent as 'true' or 'false'. The hashtable is not modified.</maml:para>
         </maml:description>
         <command:parameterValue required="true" variableLength="false">Hashtable</command:parameterValue>
         <dev:type>
