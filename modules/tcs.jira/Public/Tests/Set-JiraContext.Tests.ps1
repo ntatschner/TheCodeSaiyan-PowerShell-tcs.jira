@@ -54,10 +54,9 @@ Describe 'Set-JiraContext' {
         Set-JiraContext -JiraUrl 'https://contoso.atlassian.net' -Username $user -PersonalAccessToken $secret
         $expected = 'Basic ' + [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("${user}:$secret"))
         $expected | Should -Be 'Basic asO2cmdAY29udG9zby5jb206dMO2a+KCrG4='
-        InModuleScope tcs.jira -Parameters @{ Expected = $expected } {
-            param($Expected)
-            Get-JiraAuthorizationHeader | Should -BeExactly $Expected
-        }
+        Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ accountId = 'a' } }
+        $null = Invoke-JiraRequest -Method Get -URIPath '/myself'
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Headers.Authorization -ceq $expected }
     }
 
     It 'Accepts a PSCredential' {
@@ -65,10 +64,9 @@ Describe 'Set-JiraContext' {
         foreach ($c in $Token.ToCharArray()) { $secure.AppendChar($c) }
         $credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList 'user@contoso.com', $secure
         Set-JiraContext -JiraUrl 'https://contoso.atlassian.net' -Credential $credential
-        InModuleScope tcs.jira -Parameters @{ Expected = "Basic $EncodedPair" } {
-            param($Expected)
-            Get-JiraAuthorizationHeader | Should -BeExactly $Expected
-        }
+        Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ accountId = 'a' } }
+        $null = Invoke-JiraRequest -Method Get -URIPath '/myself'
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Headers.Authorization -ceq "Basic $EncodedPair" }
     }
 
     It 'Does not write the token to the verbose stream' {

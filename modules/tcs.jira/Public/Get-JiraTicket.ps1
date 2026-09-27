@@ -42,21 +42,22 @@ function Get-JiraTicket {
         [string]$IssueKey
     )
 
+    begin {
+        $telemetry = Start-TcsTelemetry
+        $lastError = $null
+    }
+
     process {
-        $TelemetryArgs = @{
-            ModuleName    = $MyInvocation.MyCommand.Module.Name
-            ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-            CommandName   = $MyInvocation.MyCommand.Name
-            ExecutionID   = [guid]::NewGuid().ToString()
-        }
-        Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+        # finally also completes the run when a downstream command stops the pipeline or an
+        # error bypasses catch; the end block does not run then
+        $completed = $false
         try {
             Write-Verbose "Getting ticket details for issue key: $IssueKey"
             $ticket = Invoke-JiraRequest -Method Get -Resource 'issue' -Id $IssueKey
 
             if (-not $ticket) {
                 Write-Warning "Failed to retrieve Jira ticket: $IssueKey. The response from the server was empty or invalid."
-                Invoke-TelemetryCollection @TelemetryArgs -Stage End
+                $completed = $true
                 return
             }
 
@@ -91,11 +92,20 @@ function Get-JiraTicket {
                 DescriptionText = ConvertFrom-JiraDocument -Document $ticket.fields.description
                 Comments        = $commentList.ToArray()
             }
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
+            $completed = $true
         }
         catch {
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+            $lastError = $_
             throw
         }
+        finally {
+            if (-not $completed) {
+                Complete-TcsTelemetry -Token $telemetry -ErrorRecord $lastError
+            }
+        }
+    }
+
+    end {
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $lastError
     }
 }

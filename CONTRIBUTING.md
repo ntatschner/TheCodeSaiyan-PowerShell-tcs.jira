@@ -1,17 +1,17 @@
 # Contributing to tcs.jira
 
 tcs.jira is part of the tcs PowerShell suite and depends on
-[tcs.core](https://github.com/ntatschner/TheCodeSaiyan-PowerShell-tcs.core) 0.3.0 or later.
+[tcs.core](https://github.com/ntatschner/TheCodeSaiyan-PowerShell-tcs.core) 0.4.1 or later.
 
 ## Getting started
 
 Requirements: PowerShell 7.2+ for development, Pester 5.7.1, PSScriptAnalyzer 1.23.0 and
-tcs.core 0.3.0+ on `PSModulePath`.
+tcs.core 0.4.1+ on `PSModulePath`.
 
 ```powershell
 Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -SkipPublisherCheck
 Install-Module PSScriptAnalyzer -RequiredVersion 1.23.0 -Scope CurrentUser
-Install-Module tcs.core -MinimumVersion 0.3.0 -Scope CurrentUser
+Install-Module tcs.core -MinimumVersion 0.4.1 -Scope CurrentUser
 
 # Tests (offline: every REST call is mocked)
 Import-Module Pester -RequiredVersion 5.7.1
@@ -44,7 +44,10 @@ Every file in `Public/` must also be listed in `FunctionsToExport` in `tcs.jira.
   and **warnings fail the build**. Suppress a rule only with a written justification.
 - **State-changing functions** (`New-`, `Set-`, `Update-` ...) support `-WhatIf`/`-Confirm`.
 - **Secrets:** never write tokens to disk, output, verbose or error messages. Build the
-  Authorization header with the private `Get-JiraAuthorizationHeader` helper.
+  Authorization header for each request with tcs.core `New-BasicAuthHeader`.
+- **tcs.core helpers:** use `Invoke-WithRetry`, `Get-HttpErrorDetail` and `ConvertTo-QueryString`
+  for HTTP work. Every exported command reports telemetry with `Start-TcsTelemetry` and
+  `Complete-TcsTelemetry` (the module test checks this).
 - **Help:** every exported function has comment-based help with a synopsis, description,
   every parameter and at least one example.
 - **Tests:** new behaviour and bug fixes come with Pester tests. Tests must not touch the real

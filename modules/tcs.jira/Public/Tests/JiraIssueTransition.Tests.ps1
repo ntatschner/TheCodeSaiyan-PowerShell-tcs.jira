@@ -28,6 +28,36 @@ Describe 'Get-JiraIssueTransition' {
     }
 }
 
+Describe 'Get-JiraIssueTransition telemetry' {
+    BeforeEach {
+        Mock -ModuleName tcs.core Invoke-TelemetryCollection { }
+        Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ transitions = @([pscustomobject]@{ id = '1'; name = 'Start' }, [pscustomobject]@{ id = '2'; name = 'Finish' }) } }
+    }
+
+    It 'Records exactly one End event when Select-Object -First stops the pipeline' {
+        $first = 'PROJ-1', 'PROJ-2' | ForEach-Object { [pscustomobject]@{ Key = $_ } } | Get-JiraIssueTransition | Select-Object -First 1
+        $first.id | Should -Be '1'
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'Get-JiraIssueTransition' -and $Stage -eq 'Start'
+        }
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'Get-JiraIssueTransition' -and $Stage -eq 'End' -and -not $Failed
+        }
+    }
+
+    It 'Records exactly one failed End event when an item fails' {
+        Mock -ModuleName tcs.jira Invoke-RestMethod { throw 'Server error' }
+        { 'PROJ-1', 'PROJ-2' | ForEach-Object { [pscustomobject]@{ Key = $_ } } | Get-JiraIssueTransition } | Should -Throw '*Server error*'
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'Get-JiraIssueTransition' -and $Stage -eq 'End' -and $Failed -eq $true
+        }
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
+            $Stage -eq 'End'
+        }
+    }
+}
+
 Describe 'Invoke-JiraIssueTransition' {
     BeforeEach {
         Mock -ModuleName tcs.jira Invoke-RestMethod {

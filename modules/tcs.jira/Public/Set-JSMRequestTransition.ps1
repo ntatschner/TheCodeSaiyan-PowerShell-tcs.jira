@@ -27,16 +27,9 @@ function Set-JSMRequestTransition {
         [string]$TransitionId
     )
 
-    $TelemetryArgs = @{
-        ModuleName    = $MyInvocation.MyCommand.Module.Name
-        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-        CommandName   = $MyInvocation.MyCommand.Name
-        ExecutionID   = [guid]::NewGuid().ToString()
-    }
-    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    $telemetry = Start-TcsTelemetry
     try {
         if (-not $PSCmdlet.ShouldProcess($IssueKey, "Perform transition $TransitionId")) {
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
             return
         }
 
@@ -44,13 +37,14 @@ function Set-JSMRequestTransition {
         $result = Invoke-JiraRequest -Method Post -URIPath "/servicedeskapi/request/$([System.Uri]::EscapeDataString($IssueKey))/transition" -Body $body
         Write-Verbose "Successfully transitioned JSM request $IssueKey."
         if ($result) {
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
             return $result
         }
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End
     }
     catch {
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
         throw
+    }
+    finally {
+        Complete-TcsTelemetry -Token $telemetry
     }
 }

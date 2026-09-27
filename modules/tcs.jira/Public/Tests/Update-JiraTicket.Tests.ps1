@@ -132,22 +132,33 @@ Describe 'Update-JiraTicket' {
 Describe 'Update-JiraTicket telemetry' {
     BeforeEach {
         Mock -ModuleName tcs.jira Invoke-RestMethod { [pscustomobject]@{ id = '500' } }
-        Mock -ModuleName tcs.jira Invoke-TelemetryCollection { }
+        Mock -ModuleName tcs.core Invoke-TelemetryCollection { }
     }
 
     It 'Sends Start and End events for a successful update' {
         Update-JiraTicket -IssueKey 'PROJ-1' -Comment 'Hello'
-        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
             $CommandName -eq 'Update-JiraTicket' -and $Stage -eq 'Start'
         }
-        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'Update-JiraTicket' -and $Stage -eq 'End' -and -not $Failed
+        }
+    }
+
+    It 'Sends one Start and one End event for a whole pipeline' {
+        'PROJ-1', 'PROJ-2' | ForEach-Object { [pscustomobject]@{ Key = $_ } } | Update-JiraTicket -Comment 'Hello'
+        Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 2 -Exactly
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
+            $CommandName -eq 'Update-JiraTicket' -and $Stage -eq 'Start'
+        }
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
             $CommandName -eq 'Update-JiraTicket' -and $Stage -eq 'End' -and -not $Failed
         }
     }
 
     It 'Sends a failed End event and rethrows when there is nothing to update' {
         { Update-JiraTicket -IssueKey 'PROJ-1' } | Should -Throw '*at least one*'
-        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
             $CommandName -eq 'Update-JiraTicket' -and $Stage -eq 'End' -and $Failed -eq $true
         }
     }
@@ -155,10 +166,10 @@ Describe 'Update-JiraTicket telemetry' {
     It 'Sends a failed End event when adding the comment fails' {
         Mock -ModuleName tcs.jira Invoke-RestMethod { throw 'Server error' }
         { Update-JiraTicket -IssueKey 'PROJ-1' -Comment 'Hello' } | Should -Throw '*Server error*'
-        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
             $CommandName -eq 'Update-JiraTicket' -and $Stage -eq 'End' -and $Failed -eq $true
         }
-        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.jira -Times 0 -Exactly -ParameterFilter {
+        Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 0 -Exactly -ParameterFilter {
             $CommandName -eq 'Update-JiraTicket' -and $Stage -eq 'End' -and -not $Failed
         }
     }

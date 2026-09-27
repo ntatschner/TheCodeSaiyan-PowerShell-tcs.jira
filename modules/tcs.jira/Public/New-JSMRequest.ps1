@@ -55,18 +55,12 @@ function New-JSMRequest {
         [string]$Reporter
     )
 
-    $TelemetryArgs = @{
-        ModuleName    = $MyInvocation.MyCommand.Module.Name
-        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-        CommandName   = $MyInvocation.MyCommand.Name
-        ExecutionID   = [guid]::NewGuid().ToString()
-    }
-    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    $telemetry = Start-TcsTelemetry
     try {
         # Separate name: PowerShell variable names are case-insensitive
         $fieldValues = @{}
         if ($RequestFieldValues) {
-            foreach ($key in $RequestFieldValues.Keys) {
+            foreach ($key in $RequestFieldValues.get_Keys()) {
                 $fieldValues[[string]$key] = $RequestFieldValues[$key]
             }
         }
@@ -85,20 +79,20 @@ function New-JSMRequest {
         }
 
         if (-not $PSCmdlet.ShouldProcess("service desk $ServiceDeskId", "Create request '$Summary'")) {
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
             return
         }
 
         $result = Invoke-JiraRequest -Method Post -URIPath '/servicedeskapi/request' -Body $body
         if ($result) {
             Write-Verbose "Successfully created JSM request: $($result.issueKey)"
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
             return $result
         }
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End
     }
     catch {
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
         throw
+    }
+    finally {
+        Complete-TcsTelemetry -Token $telemetry
     }
 }

@@ -24,8 +24,8 @@ function Invoke-JiraRequest {
 
         Retries: HTTP 429 is retried for every method. Other 5xx errors are retried only for the
         idempotent methods Get, Put and Delete, so a Post (for example creating an issue) is never
-        sent twice. At most three attempts are made; the wait honours the Retry-After header
-        (capped at 60 seconds) and is otherwise 2, then 4 seconds.
+        sent twice. At most three attempts are made. The wait is 2, then 4 seconds, or longer when
+        the Retry-After header (seconds or an HTTP date) asks for it, up to 60 seconds.
 
         Errors are terminating and include the HTTP status and Jira's error details, never the
         credentials.
@@ -46,7 +46,9 @@ function Invoke-JiraRequest {
         The request body. A string is sent as it is (it should be JSON). Any other object, such
         as a hashtable, is converted to JSON (depth 20).
     .PARAMETER Query
-        Query string parameters. Keys and values are URL-encoded. The hashtable is not modified.
+        Query string parameters. Keys and values are URL-encoded. An array value repeats the key
+        (for example expand=a&expand=b), $null values are left out and booleans are sent as
+        'true' or 'false'. The hashtable is not modified.
     .PARAMETER JQL
         A JQL query. Without -URIPath the request goes to the enhanced search endpoint
         /rest/api/3/search/jql and returns all navigable fields unless -Query sets 'fields'.
@@ -102,13 +104,7 @@ function Invoke-JiraRequest {
         [switch]$Raw
     )
 
-    $TelemetryArgs = @{
-        ModuleName    = $MyInvocation.MyCommand.Module.Name
-        ModuleVersion = [string]$MyInvocation.MyCommand.Module.Version
-        CommandName   = $MyInvocation.MyCommand.Name
-        ExecutionID   = [guid]::NewGuid().ToString()
-    }
-    Invoke-TelemetryCollection @TelemetryArgs -Stage Start -ClearTimer
+    $telemetry = Start-TcsTelemetry
     try {
         if (-not $script:JiraContext -or -not $script:JiraCredential) {
             throw 'Jira context is not set. Run Set-JiraContext first.'
@@ -166,12 +162,34 @@ function Invoke-JiraRequest {
             }
         }
         $isIdempotent = $Method -in @('Get', 'Put', 'Delete')
+        # 429: the request was not processed, so any method can be retried.
+        # 5xx: only idempotent methods, a POST may already have created something.
+        # Errors without an HTTP status (DNS, connection, timeout) are not retried.
+        $shouldRetry = {
+            param ($errorRecord)
+            $detail = Get-HttpErrorDetail -ErrorRecord $errorRecord
+            if (-not $detail -or $null -eq $detail.StatusCode) {
+                return $false
+            }
+            $code = [int]$detail.StatusCode
+            ($code -eq 429) -or ($isIdempotent -and $code -ge 500 -and $code -le 599)
+        }
+        $onRetry = {
+            param ($exception, $attempt)
+            # The same wait Invoke-WithRetry uses: 2, then 4 seconds, or Retry-After when longer (at most 60)
+            $detail = Get-HttpErrorDetail -ErrorRecord $exception
+            $retryDelaySeconds = [math]::Min(2 * [math]::Pow(2, $attempt - 1), 60)
+            if ($detail -and $null -ne $detail.RetryAfterSeconds) {
+                $retryDelaySeconds = [math]::Max($retryDelaySeconds, [math]::Min([double]$detail.RetryAfterSeconds, 60))
+            }
+            Write-Warning "Jira returned HTTP $($detail.StatusCode). Retrying in $([math]::Ceiling($retryDelaySeconds)) seconds (attempt $attempt of 3)."
+        }
         Write-Verbose "Endpoint base (pre-query): $endpointBase"
 
         # --- Query parameters (copied so the caller's hashtable is not changed) ---
         $queryParameters = [ordered]@{}
         if ($Query) {
-            foreach ($key in $Query.Keys) {
+            foreach ($key in $Query.get_Keys()) {
                 $queryParameters[[string]$key] = $Query[$key]
             }
         }
@@ -183,27 +201,24 @@ function Invoke-JiraRequest {
             }
         }
 
-        $headers = @{
-            Authorization = Get-JiraAuthorizationHeader
-            Accept        = 'application/json'
-        }
+        # Built for this request only, so the token is never kept in a readable variable
+        $headers = New-BasicAuthHeader -Credential $script:JiraCredential
+        $headers['Accept'] = 'application/json'
 
         $allResults = New-Object -TypeName 'System.Collections.Generic.List[object]'
         $nextUri = $null
         $pageCount = 0
-        $maxAttempts = 3
 
         do {
             if ($nextUri) {
                 $uri = $nextUri
             }
             else {
-                $pairs = @(foreach ($key in $queryParameters.Keys) {
-                        '{0}={1}' -f [System.Uri]::EscapeDataString([string]$key), [System.Uri]::EscapeDataString([string]$queryParameters[$key])
-                    })
+                # Keys keep their order; values are URL-encoded
+                $queryString = ConvertTo-QueryString -InputObject $queryParameters
                 $uri = $endpointBase
-                if ($pairs.Count -gt 0) {
-                    $uri = '{0}?{1}' -f $endpointBase, ($pairs -join '&')
+                if ($queryString) {
+                    $uri = '{0}?{1}' -f $endpointBase, $queryString
                 }
             }
 
@@ -219,60 +234,35 @@ function Invoke-JiraRequest {
             }
             Write-Verbose ('[Page {0}] {1} {2}' -f ($pageCount + 1), $Method.ToUpperInvariant(), $uri)
 
-            $attempt = 0
-            $response = $null
-            while ($true) {
-                $attempt++
-                try {
-                    $response = Invoke-RestMethod @requestParameters
-                    break
+            $retryParameters = @{
+                ScriptBlock       = { Invoke-RestMethod @requestParameters }
+                MaxRetries        = 2
+                DelaySeconds      = 2
+                BackoffMultiplier = 2
+                MaxDelaySeconds   = 60
+                ShouldRetry       = $shouldRetry
+                OnRetry           = $onRetry
+            }
+            try {
+                $response = Invoke-WithRetry @retryParameters
+            }
+            catch {
+                $caught = $_
+                $detail = Get-HttpErrorDetail -ErrorRecord $caught
+                $errorMessage = "Jira request $($Method.ToUpperInvariant()) '$uri' failed."
+                if ($detail -and $detail.StatusCode) {
+                    $errorMessage += " HTTP status code: $($detail.StatusCode)."
                 }
-                catch {
-                    $caught = $_
-                    $statusCode = $null
-                    if ($caught.Exception.Response -and $caught.Exception.Response.StatusCode) {
-                        $statusCode = [int]$caught.Exception.Response.StatusCode
-                    }
-                    elseif ($caught.ErrorDetails -and $caught.ErrorDetails.Message -match '"status"\s*:\s*(\d+)') {
-                        $statusCode = [int]$Matches[1]
-                    }
-
-                    # 429: the request was not processed, so any method can be retried.
-                    # 5xx: only idempotent methods, a POST may already have created something.
-                    $retryable = ($statusCode -eq 429) -or ($isIdempotent -and $statusCode -ge 500 -and $statusCode -le 599)
-                    if ($retryable -and $attempt -lt $maxAttempts) {
-                        $retryDelaySeconds = Get-JiraRetryDelay -Response $caught.Exception.Response -Attempt $attempt
-                        Write-Warning "Jira returned HTTP $statusCode. Retrying in $retryDelaySeconds seconds (attempt $attempt of $maxAttempts)."
-                        Start-Sleep -Seconds $retryDelaySeconds
-                        continue
-                    }
-
-                    $errorMessage = "Jira request $($Method.ToUpperInvariant()) '$uri' failed."
-                    if ($statusCode) {
-                        $errorMessage += " HTTP status code: $statusCode."
-                    }
-                    if ($caught.ErrorDetails -and $caught.ErrorDetails.Message) {
-                        $errorMessage += " Details: $($caught.ErrorDetails.Message)"
-                    }
-                    elseif ($caught.Exception.Response -is [System.Net.WebResponse]) {
-                        # Windows PowerShell: read the error body from the response stream
-                        try {
-                            $reader = New-Object -TypeName System.IO.StreamReader -ArgumentList $caught.Exception.Response.GetResponseStream()
-                            $errorMessage += " Details: $($reader.ReadToEnd())"
-                            $reader.Close()
-                        }
-                        catch {
-                            $errorMessage += " Details: $($_.Exception.Message)"
-                        }
-                    }
-                    else {
-                        $errorMessage += " Details: $($caught.Exception.Message)"
-                    }
-
-                    $exception = New-Object -TypeName System.InvalidOperationException -ArgumentList $errorMessage, $caught.Exception
-                    $errorRecord = New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, 'JiraRequestFailed', ([System.Management.Automation.ErrorCategory]::InvalidResult), $uri
-                    $PSCmdlet.ThrowTerminatingError($errorRecord)
+                if ($detail -and -not [string]::IsNullOrEmpty($detail.Body)) {
+                    $errorMessage += " Details: $($detail.Body)"
                 }
+                else {
+                    $errorMessage += " Details: $($caught.Exception.Message)"
+                }
+
+                $exception = New-Object -TypeName System.InvalidOperationException -ArgumentList $errorMessage, $caught.Exception
+                $errorRecord = New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, 'JiraRequestFailed', ([System.Management.Automation.ErrorCategory]::InvalidResult), $uri
+                $PSCmdlet.ThrowTerminatingError($errorRecord)
             }
 
             # --- Collect results ---
@@ -351,7 +341,6 @@ function Invoke-JiraRequest {
         } while ($morePages -and $pageCount -lt $MaxQueryPages)
 
         if ($Raw) {
-            Invoke-TelemetryCollection @TelemetryArgs -Stage End
             return
         }
         if ($morePages) {
@@ -360,10 +349,12 @@ function Invoke-JiraRequest {
 
         Write-Verbose "Response received. Total result objects collected: $($allResults.Count)"
         $allResults
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End
     }
     catch {
-        Invoke-TelemetryCollection @TelemetryArgs -Stage End -Failed $true -Exception $_
+        Complete-TcsTelemetry -Token $telemetry -ErrorRecord $_
         throw
+    }
+    finally {
+        Complete-TcsTelemetry -Token $telemetry
     }
 }

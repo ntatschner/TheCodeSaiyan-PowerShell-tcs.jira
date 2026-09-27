@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-27
+
+### Changed
+- Requires tcs.core 0.4.1 or later (0.4.1 fixes `ConvertTo-QueryString` dropping a key named `keys`).
+- A hashtable entry named `keys` in `-Query` (for example `/project/search?keys=`), `-Fields`,
+  `-RequestFieldValues` or the optional update fields is no longer lost: PowerShell resolved
+  `.Keys` to that entry, so the loops now use `get_Keys()`.
+- Telemetry: every exported command uses tcs.core `Start-TcsTelemetry` and
+  `Complete-TcsTelemetry` instead of its own copy of the `Invoke-TelemetryCollection` calls.
+  Pipeline commands (`Get-JiraTicket`, `Get-JiraIssueTransition`, `Get-JSMRequestTransition`,
+  `Get-JSMRequestType`, `Invoke-JiraIssueTransition`, `Update-JiraTicket`, `Update-JSMRequest`)
+  now report one event for the whole pipeline instead of one per input object. When a tcs.jira
+  command calls another one (for example `Get-JSMRequest` calling `Invoke-JiraRequest`), only
+  the outer command is recorded. The load event is unchanged.
+- `Invoke-JiraRequest` uses the tcs.core HTTP helpers: `New-BasicAuthHeader` for the
+  Authorization header, `ConvertTo-QueryString` for `-Query`, `Invoke-WithRetry` for retries and
+  `Get-HttpErrorDetail` for the status code and body of a failed request. The retry rules and
+  the `JiraRequestFailed` error text are unchanged: HTTP 429 is retried for every method, other
+  5xx errors only for `Get`, `Put` and `Delete`, at most three attempts, waits of 2 then 4
+  seconds, `Retry-After` (seconds or an HTTP date) honoured up to 60 seconds.
+- `Invoke-JiraRequest` waits at least the backoff (2, then 4 seconds) even when `Retry-After`
+  asks for less; it used to wait only the `Retry-After` time (for example 0 or 1 second).
+- `Invoke-JiraRequest -Query`: an array value repeats the key (`expand=a&expand=b`, was
+  `expand=a%20b`), `$null` values are left out (were sent as `key=`), booleans are sent as
+  `true`/`false` (were `True`/`False`) and dates in ISO 8601.
+
+### Removed
+- The private helpers `Get-JiraAuthorizationHeader` and `Get-JiraRetryDelay` (replaced by
+  tcs.core `New-BasicAuthHeader` and `Invoke-WithRetry`).
+
 ## [0.2.0] - 2026-09-24
 
 ### Breaking changes

@@ -9,7 +9,7 @@ any endpoint with `Invoke-JiraRequest`. Part of the TheCodeSaiyan (tcs) PowerShe
 ## Requirements
 
 - Windows PowerShell 5.1 or PowerShell 7.2+ on Windows, Linux or macOS
-- [tcs.core](https://github.com/ntatschner/TheCodeSaiyan-PowerShell-tcs.core) **0.3.0 or later**
+- [tcs.core](https://github.com/ntatschner/TheCodeSaiyan-PowerShell-tcs.core) **0.4.1 or later**
   (installed automatically as a required module from the PowerShell Gallery)
 - A Jira Cloud site and an Atlassian account e-mail address with an
   [API token](https://id.atlassian.com/manage-profile/security/api-tokens).
@@ -22,7 +22,7 @@ any endpoint with `Invoke-JiraRequest`. Part of the TheCodeSaiyan (tcs) PowerShe
 # From the PowerShell Gallery
 Install-Module -Name tcs.jira -Scope CurrentUser
 
-# From source (tcs.core 0.3.0+ must already be installed)
+# From source (tcs.core 0.4.1+ must already be installed)
 git clone https://github.com/ntatschner/TheCodeSaiyan-PowerShell-tcs.jira.git
 Import-Module ./TheCodeSaiyan-PowerShell-tcs.jira/modules/tcs.jira/tcs.jira.psd1
 ```
@@ -97,7 +97,8 @@ Invoke-JiraRequest -Method Post -URIPath '/issue/bulk' -Body @{ issueUpdates = $
 - `Invoke-JiraRequest` unwraps JQL search results and pages of values and follows the next-page
   links on the same site. Use `-Raw` to get a response exactly as Jira sent it. HTTP 429 is
   retried for every method; other 5xx errors only for `Get`, `Put` and `Delete`, so a create is
-  never sent twice. The wait honours the `Retry-After` header.
+  never sent twice. At most three attempts are made; the wait is 2, then 4 seconds, or longer
+  when the `Retry-After` header asks for it (up to 60 seconds).
 - Issue keys must look like `PROJ-123` (or a numeric id) and are URL-encoded in request paths.
 - The API token is held in memory for the current session only. `$global:JiraContext` is still
   set for older scripts, but contains only the URL and user name. It is **deprecated**: use
@@ -129,7 +130,8 @@ Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 tcs modules send anonymous usage telemetry (through tcs.core) to help find failing commands.
 Telemetry is on by default and a notice is shown the first time a module is loaded. Nothing is
 sent until a telemetry endpoint is configured. tcs.jira records one event when the module is
-loaded.
+loaded and one for each command run (one for a whole pipeline). When a tcs.jira command calls
+another one, only the outer command is recorded.
 
 Each event contains: time (UTC), module and command name, module version, duration, success,
 the exception **type** on failure, PowerShell version and edition, OS family, PowerShell host

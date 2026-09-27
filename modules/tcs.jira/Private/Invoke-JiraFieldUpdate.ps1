@@ -32,14 +32,14 @@ function Invoke-JiraFieldUpdate {
         $fieldsToUpdate['summary'] = $Summary
     }
     if ($OptionalFields) {
-        foreach ($key in $OptionalFields.Keys) {
+        foreach ($key in $OptionalFields.get_Keys()) {
             $fieldsToUpdate[$key] = $OptionalFields[$key]
         }
     }
     if ($fieldsToUpdate.Count -eq 0) {
         return
     }
-    if (-not $Cmdlet.ShouldProcess($IssueKey, "Update fields: $(@($fieldsToUpdate.Keys) -join ', ')")) {
+    if (-not $Cmdlet.ShouldProcess($IssueKey, "Update fields: $(@($fieldsToUpdate.get_Keys()) -join ', ')")) {
         return
     }
 

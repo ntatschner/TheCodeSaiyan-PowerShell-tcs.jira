@@ -28,7 +28,8 @@ AfterAll {
 Describe 'Invoke-JiraRequest' {
     BeforeEach {
         Set-JiraContext -JiraUrl "$Base/" -Username 'user@contoso.com' -PersonalAccessToken $Token
-        Mock -ModuleName tcs.jira Start-Sleep { }
+        # Invoke-WithRetry waits in tcs.core's scope
+        Mock -ModuleName tcs.core Start-Sleep { }
     }
 
     Context 'Context checks and parameter validation' {
@@ -138,6 +139,24 @@ Describe 'Invoke-JiraRequest' {
                 $Uri.OriginalString -eq "$Base/rest/api/3/project/search?a%20b=c%26d%3De"
             }
             $query.Keys.Count | Should -Be 1
+        }
+
+        It 'Repeats the key for array values, leaves out $null values and sends booleans in lower case' {
+            $query = @{ expand = @('names', 'schema'); startAt = 0; skipped = $null; includeInactive = $true }
+            $null = Invoke-JiraRequest -Method Get -URIPath '/project/search' -Query $query
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+                $pairs = @(($Uri.OriginalString -split '\?', 2)[1] -split '&' | Sort-Object)
+                ($pairs -join '&') -eq 'expand=names&expand=schema&includeInactive=true&startAt=0'
+            }
+        }
+
+        It 'Sends a query parameter named keys' {
+            # A hashtable entry named 'keys' hides the .Keys property; /project/search takes ?keys=
+            $null = Invoke-JiraRequest -Method Get -URIPath '/project/search' -Query @{ keys = 'PROJ'; startAt = 0 }
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter {
+                $pairs = @(($Uri.OriginalString -split '\?', 2)[1] -split '&' | Sort-Object)
+                ($pairs -join '&') -eq 'keys=PROJ&startAt=0'
+            }
         }
 
         It 'Does not write the token to the verbose stream' {
@@ -314,14 +333,14 @@ Describe 'Invoke-JiraRequest' {
             $result = Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' -WarningAction SilentlyContinue
             $result.key | Should -Be 'PROJ-1'
             Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 3 -Exactly
-            Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 2 -Exactly
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 2 -Exactly
         }
 
         It 'Does not retry a POST on HTTP 503, so an issue is never created twice' {
             Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 503) }
             { Invoke-JiraRequest -Method Post -Resource issue -Body @{ fields = @{} } -WarningAction SilentlyContinue } | Should -Throw '*HTTP status code: 503*'
             Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
-            Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 0 -Exactly
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 0 -Exactly
         }
 
         It 'Does not retry a POST on HTTP 500 or a PATCH on HTTP 502' {
@@ -359,14 +378,102 @@ Describe 'Invoke-JiraRequest' {
                 [pscustomobject]@{ key = 'PROJ-1' }
             }
             $null = Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' -WarningAction SilentlyContinue
-            Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Seconds -eq 7 }
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 7000 }
         }
 
         It 'Backs off 2 then 4 seconds without Retry-After' {
             Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 503) }
             { Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' -WarningAction SilentlyContinue } | Should -Throw
-            Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Seconds -eq 2 }
-            Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 1 -Exactly -ParameterFilter { $Seconds -eq 4 }
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 2000 }
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 4000 }
+        }
+
+        It 'Waits for a Retry-After HTTP date' {
+            $script:calls = 0
+            Mock -ModuleName tcs.jira Invoke-RestMethod {
+                $script:calls++
+                if ($script:calls -eq 1) {
+                    $date = [datetime]::UtcNow.AddSeconds(30).ToString('r', [System.Globalization.CultureInfo]::InvariantCulture)
+                    throw (New-HttpError -StatusCode 429 -Headers @{ 'Retry-After' = $date })
+                }
+                [pscustomobject]@{ key = 'PROJ-1' }
+            }
+            $null = Invoke-JiraRequest -Method Post -Resource issue -Body '{}' -WarningAction SilentlyContinue
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 2 -Exactly
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter { $Milliseconds -ge 27000 -and $Milliseconds -le 31000 }
+        }
+
+        It 'Waits for Retry-After from a WebHeaderCollection (Windows PowerShell)' {
+            $script:calls = 0
+            Mock -ModuleName tcs.jira Invoke-RestMethod {
+                $script:calls++
+                if ($script:calls -eq 1) {
+                    $headers = New-Object -TypeName System.Net.WebHeaderCollection
+                    $headers.Add('Retry-After', '3')
+                    $exception = New-Object -TypeName System.Exception -ArgumentList 'Too Many Requests'
+                    $exception | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{ StatusCode = 429; Headers = $headers })
+                    throw (New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, 'HttpError', ([System.Management.Automation.ErrorCategory]::InvalidOperation), $null)
+                }
+                [pscustomobject]@{ key = 'PROJ-1' }
+            }
+            $null = Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' -WarningAction SilentlyContinue
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 3000 }
+        }
+
+        It 'Waits for Retry-After from an HttpResponseMessage (PowerShell 7)' -Skip:($PSVersionTable.PSEdition -ne 'Core') {
+            $script:calls = 0
+            Mock -ModuleName tcs.jira Invoke-RestMethod {
+                $script:calls++
+                if ($script:calls -eq 1) {
+                    $response = New-Object -TypeName System.Net.Http.HttpResponseMessage -ArgumentList ([System.Net.HttpStatusCode]::ServiceUnavailable)
+                    $response.Headers.RetryAfter = New-Object -TypeName System.Net.Http.Headers.RetryConditionHeaderValue -ArgumentList ([timespan]::FromSeconds(9))
+                    $exception = New-Object -TypeName System.Exception -ArgumentList 'Service Unavailable'
+                    $exception | Add-Member -NotePropertyName Response -NotePropertyValue $response
+                    throw (New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, 'HttpError', ([System.Management.Automation.ErrorCategory]::InvalidOperation), $null)
+                }
+                [pscustomobject]@{ key = 'PROJ-1' }
+            }
+            $null = Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' -WarningAction SilentlyContinue
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 9000 }
+        }
+
+        It 'Caps the Retry-After wait at 60 seconds' {
+            $script:calls = 0
+            Mock -ModuleName tcs.jira Invoke-RestMethod {
+                $script:calls++
+                if ($script:calls -eq 1) { throw (New-HttpError -StatusCode 429 -Headers @{ 'Retry-After' = '86400' }) }
+                [pscustomobject]@{ key = 'PROJ-1' }
+            }
+            $null = Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' -WarningAction SilentlyContinue
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 60000 }
+        }
+
+        It 'Warns before each retry' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 503) }
+            $warnings = $null
+            try {
+                $null = Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' -WarningVariable warnings -WarningAction SilentlyContinue
+            }
+            catch {
+                $_.Exception.Message | Should -Match 'HTTP status code: 503'
+            }
+            @($warnings).Count | Should -Be 2
+            [string]$warnings[0] | Should -Be 'Jira returned HTTP 503. Retrying in 2 seconds (attempt 1 of 3).'
+            [string]$warnings[1] | Should -Be 'Jira returned HTTP 503. Retrying in 4 seconds (attempt 2 of 3).'
+        }
+
+        It 'Gives up after three attempts on HTTP 429, for any method' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 429) }
+            { Invoke-JiraRequest -Method Post -Resource issue -Body '{}' -WarningAction SilentlyContinue } | Should -Throw '*HTTP status code: 429*'
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 3 -Exactly
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 2 -Exactly
+        }
+
+        It 'Does not retry an error without an HTTP response' {
+            Mock -ModuleName tcs.jira Invoke-RestMethod { throw 'No such host is known.' }
+            { Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' } | Should -Throw '*No such host is known.*'
+            Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 0 -Exactly
         }
 
         It 'Gives up after three attempts' {
@@ -391,7 +498,7 @@ Describe 'Invoke-JiraRequest' {
             $caught.Exception.Message | Should -Match 'PROJ-404'
             $caught.Exception.InnerException | Should -Not -BeNullOrEmpty
             Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
-            Should -Invoke Start-Sleep -ModuleName tcs.jira -Times 0 -Exactly
+            Should -Invoke Start-Sleep -ModuleName tcs.core -Times 0 -Exactly
         }
 
         It 'Never includes the token in the error' {

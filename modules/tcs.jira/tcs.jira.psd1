@@ -1,5 +1,5 @@
 @{
-    ModuleVersion        = '0.2.0'
+    ModuleVersion        = '0.3.0'
     GUID                 = 'dd02af82-ea25-4294-b76e-e072e4d992e9'
     Author               = 'Nigel Tatschner'
     CompanyName          = 'TheCodeSaiyan'
@@ -9,7 +9,7 @@
     PowerShellVersion    = '5.1'
     RootModule           = 'tcs.jira.psm1'
     RequiredModules      = @(
-        @{ ModuleName = 'tcs.core'; ModuleVersion = '0.3.0' }
+        @{ ModuleName = 'tcs.core'; ModuleVersion = '0.4.1' }
     )
     FunctionsToExport    = @(
         'Clear-JiraContext',
