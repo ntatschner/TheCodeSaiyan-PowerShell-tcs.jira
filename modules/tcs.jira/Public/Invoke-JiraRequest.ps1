@@ -262,6 +262,8 @@ function Invoke-JiraRequest {
 
                 $exception = New-Object -TypeName System.InvalidOperationException -ArgumentList $errorMessage, $caught.Exception
                 $errorRecord = New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, 'JiraRequestFailed', ([System.Management.Automation.ErrorCategory]::InvalidResult), $uri
+                # ThrowTerminatingError skips the catch block below (only finally runs), so record the failure first
+                Complete-TcsTelemetry -Token $telemetry -ErrorRecord $errorRecord
                 $PSCmdlet.ThrowTerminatingError($errorRecord)
             }
 

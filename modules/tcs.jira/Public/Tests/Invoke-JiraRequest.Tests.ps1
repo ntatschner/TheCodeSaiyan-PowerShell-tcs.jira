@@ -343,6 +343,16 @@ Describe 'Invoke-JiraRequest' {
             Should -Invoke Start-Sleep -ModuleName tcs.core -Times 0 -Exactly
         }
 
+        It 'Records a failed request as a failed telemetry run' {
+            Mock -ModuleName tcs.core Invoke-TelemetryCollection { }
+            Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 400) }
+            { Invoke-JiraRequest -Method Get -Resource issue -Id 'PROJ-1' } | Should -Throw -ErrorId 'JiraRequestFailed,Invoke-JiraRequest'
+            Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter {
+                $CommandName -eq 'Invoke-JiraRequest' -and $Stage -eq 'End' -and $Failed -eq $true
+            }
+            Should -Invoke Invoke-TelemetryCollection -ModuleName tcs.core -Times 1 -Exactly -ParameterFilter { $Stage -eq 'End' }
+        }
+
         It 'Does not retry a POST on HTTP 500 or a PATCH on HTTP 502' {
             Mock -ModuleName tcs.jira Invoke-RestMethod { throw (New-HttpError -StatusCode 500) }
             { Invoke-JiraRequest -Method Post -URIPath '/issue/PROJ-1/comment' -Body '{}' } | Should -Throw '*HTTP status code: 500*'
