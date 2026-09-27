@@ -48,7 +48,7 @@ Describe 'New-JiraTicket' {
     }
 
     It 'Does not retry the create request on HTTP 503' {
-        Mock -ModuleName tcs.jira Start-Sleep { }
+        Mock -ModuleName tcs.core Start-Sleep { }
         Mock -ModuleName tcs.jira Invoke-RestMethod {
             $exception = New-Object -TypeName System.Exception -ArgumentList 'Service Unavailable'
             $exception | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{ StatusCode = 503 })
@@ -56,6 +56,7 @@ Describe 'New-JiraTicket' {
         }
         { New-JiraTicket -ProjectKey 'PROJ' -IssueType 'Task' -Summary 'S' -WarningAction SilentlyContinue } | Should -Throw '*503*'
         Should -Invoke Invoke-RestMethod -ModuleName tcs.jira -Times 1 -Exactly
+        Should -Invoke Start-Sleep -ModuleName tcs.core -Times 0 -Exactly
     }
 
     It 'Does not call Jira with -WhatIf' {

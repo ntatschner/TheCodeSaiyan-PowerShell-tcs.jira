@@ -37,7 +37,7 @@ Describe 'tcs.jira module' {
     }
 
     It 'Does not export private helpers' {
-        foreach ($helper in @('Get-JiraAuthorizationHeader', 'ConvertFrom-JiraDocument', 'ConvertTo-JiraDocument', 'ConvertTo-JiraDateTime', 'Select-JiraTransition', 'Invoke-JiraTransitionRequest', 'Invoke-JiraFieldUpdate', 'Add-JiraIssueComment', 'Get-JiraRetryDelay')) {
+        foreach ($helper in @('ConvertFrom-JiraDocument', 'ConvertTo-JiraDocument', 'ConvertTo-JiraDateTime', 'Select-JiraTransition', 'Invoke-JiraTransitionRequest', 'Invoke-JiraFieldUpdate', 'Add-JiraIssueComment')) {
             $Module.ExportedFunctions.Keys | Should -Not -Contain $helper
         }
     }
