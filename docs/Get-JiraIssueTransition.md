@@ -13,7 +13,7 @@ Gets the transitions that can be performed on a Jira Cloud issue.
 ## SYNTAX
 
 ```
-Get-JiraIssueTransition [-IssueKey] <String> [-ProgressAction <ActionPreference>] [<CommonParameters>]
+Get-JiraIssueTransition [-IssueKey] <String> [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -47,21 +47,6 @@ Required: True
 Position: 1
 Default value: None
 Accept pipeline input: True (ByPropertyName)
-Accept wildcard characters: False
-```
-
-### -ProgressAction
-{{ Fill ProgressAction Description }}
-
-```yaml
-Type: ActionPreference
-Parameter Sets: (All)
-Aliases: proga
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
 Accept wildcard characters: False
 ```
 

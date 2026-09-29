@@ -14,7 +14,7 @@ Updates a Jira Service Management request: marks it done, changes fields and/or 
 
 ```
 Update-JSMRequest [-IssueKey] <String> [[-Summary] <String>] [[-Comment] <String>] [-Internal]
- [[-OptionalFields] <Hashtable>] [-MarkDone] [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm]
+ [[-OptionalFields] <Hashtable>] [-MarkDone] [-WhatIf] [-Confirm]
  [<CommonParameters>]
 ```
 
@@ -173,21 +173,6 @@ Prompts you for confirmation before running the cmdlet.
 Type: SwitchParameter
 Parameter Sets: (All)
 Aliases: cf
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -ProgressAction
-{{ Fill ProgressAction Description }}
-
-```yaml
-Type: ActionPreference
-Parameter Sets: (All)
-Aliases: proga
 
 Required: False
 Position: Named

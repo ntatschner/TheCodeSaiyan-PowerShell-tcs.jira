@@ -1,14 +1,14 @@
 ---
 Module Name: tcs.jira
-Module Guid: {{ Update Module Guid }}
-Download Help Link: {{ Update Download Link }}
-Help Version: {{ Update Help Version }}
-Locale: {{ Update Locale }}
+Module Guid: dd02af82-ea25-4294-b76e-e072e4d992e9
+Download Help Link: 
+Help Version: 0.3.1
+Locale: en-GB
 ---
 
 # tcs.jira Module
 ## Description
-{{ Fill in the Description }}
+Jira Cloud and Jira Service Management REST API client: connection context, generic requests, and functions to get, create and update issues and service requests.
 
 ## tcs.jira Cmdlets
 ### [Clear-JiraContext](Clear-JiraContext.md)

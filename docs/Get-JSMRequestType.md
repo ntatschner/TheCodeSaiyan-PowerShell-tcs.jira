@@ -14,7 +14,7 @@ Gets the request types of a Jira Service Management service desk.
 
 ```
 Get-JSMRequestType [-ServiceDeskId] <String> [[-RequestTypeId] <String>] [[-MaxQueryPages] <Int32>]
- [-ProgressAction <ActionPreference>] [<CommonParameters>]
+ [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -87,21 +87,6 @@ Aliases:
 Required: False
 Position: 3
 Default value: 10
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -ProgressAction
-{{ Fill ProgressAction Description }}
-
-```yaml
-Type: ActionPreference
-Parameter Sets: (All)
-Aliases: proga
-
-Required: False
-Position: Named
-Default value: None
 Accept pipeline input: False
 Accept wildcard characters: False
 ```

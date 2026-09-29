@@ -13,7 +13,7 @@ Finds Jira Cloud issues with a JQL query.
 ## SYNTAX
 
 ```
-Find-JiraIssue [-JQL] <String> [-Fields <String[]>] [-MaxResults <Int32>] [-ProgressAction <ActionPreference>]
+Find-JiraIssue [-JQL] <String> [-Fields <String[]>] [-MaxResults <Int32>]
  [<CommonParameters>]
 ```
 
@@ -90,21 +90,6 @@ Aliases:
 Required: False
 Position: Named
 Default value: 100
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -ProgressAction
-{{ Fill ProgressAction Description }}
-
-```yaml
-Type: ActionPreference
-Parameter Sets: (All)
-Aliases: proga
-
-Required: False
-Position: Named
-Default value: None
 Accept pipeline input: False
 Accept wildcard characters: False
 ```

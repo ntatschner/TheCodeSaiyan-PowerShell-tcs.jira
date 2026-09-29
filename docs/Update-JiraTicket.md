@@ -15,19 +15,19 @@ Updates a Jira Cloud issue: transitions it, changes fields and/or adds a comment
 ### Default (Default)
 ```
 Update-JiraTicket -IssueKey <String> [-Summary <String>] [-Comment <String>] [-OptionalFields <Hashtable>]
- [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ### MarkResolved
 ```
 Update-JiraTicket -IssueKey <String> [-Summary <String>] [-Comment <String>] [-OptionalFields <Hashtable>]
- [-MarkResolved] [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-MarkResolved] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ### MarkDone
 ```
 Update-JiraTicket -IssueKey <String> [-Summary <String>] [-Comment <String>] [-OptionalFields <Hashtable>]
- [-MarkDone] [-ProgressAction <ActionPreference>] [-WhatIf] [-Confirm] [<CommonParameters>]
+ [-MarkDone] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -192,21 +192,6 @@ Prompts you for confirmation before running the cmdlet.
 Type: SwitchParameter
 Parameter Sets: (All)
 Aliases: cf
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -ProgressAction
-{{ Fill ProgressAction Description }}
-
-```yaml
-Type: ActionPreference
-Parameter Sets: (All)
-Aliases: proga
 
 Required: False
 Position: Named
